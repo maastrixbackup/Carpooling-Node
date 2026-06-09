@@ -264,6 +264,87 @@ const getRouteOptions = async (req, res) => {
 };
 
 
+const getDriverRideDetails = async (req, res) => {
+  try {
+    const rideId = req.params.id;
+    const driverId = req.user.id;
+
+    const ride = await RideModel.findDriverRideById(rideId, driverId);
+
+    if (!ride) {
+      return res.status(404).json({
+        success: false,
+        message: "Ride not found or not owned by you.",
+      });
+    }
+
+    const bookings = await RideModel.findRideBookingsForDriver(
+      rideId,
+      driverId
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Driver ride details fetched successfully.",
+      data: {
+        ride,
+        bookings,
+      },
+    });
+  } catch (error) {
+    console.error("Driver ride details error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong while fetching driver ride details.",
+    });
+  }
+};
+
+const updateRide = async (req, res) => {
+  try {
+    const rideId = req.params.id;
+    const driverId = req.user.id;
+
+    const allowedPayload = {
+      price_per_seat: req.body.price_per_seat,
+      available_seats: req.body.available_seats,
+      pet_allowed: req.body.pet_allowed,
+      smoking_allowed: req.body.smoking_allowed,
+      instant_booking: req.body.instant_booking,
+      max_two_in_back: req.body.max_two_in_back,
+    };
+
+    const updated = await RideModel.updateDriverRide(
+      rideId,
+      driverId,
+      allowedPayload
+    );
+
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        message: "Ride not found or not owned by you.",
+      });
+    }
+
+    const ride = await RideModel.findDriverRideById(rideId, driverId);
+
+    return res.status(200).json({
+      success: true,
+      message: "Ride updated successfully.",
+      data: { ride },
+    });
+  } catch (error) {
+    console.error("Update ride error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong while updating ride.",
+    });
+  }
+};
+
 function calculateEstimatedReachTime(rideDate, departureTime, durationSeconds) {
   if (!rideDate || !departureTime || !durationSeconds) return null;
 
@@ -283,4 +364,6 @@ module.exports = {
   getMyRides,
   cancelRide,
   getRouteOptions,
+  getDriverRideDetails,
+  updateRide,
 };

@@ -115,7 +115,10 @@ const getMyBookings = async (req, res) => {
 
 const getDriverBookings = async (req, res) => {
   try {
-    const bookings = await BookingModel.findByDriver(req.user.id);
+    const bookings = await BookingModel.findByDriver({
+      driverId: req.user.id,
+      rideId: req.query.ride_id,
+    });
 
     return res.status(200).json({
       success: true,

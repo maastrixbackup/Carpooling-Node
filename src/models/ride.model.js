@@ -245,6 +245,78 @@ const RideModel = {
 
         return result.affectedRows > 0;
     },
+
+    async findDriverRideById(rideId, driverId) {
+        const [rows] = await db.execute(
+            `
+    SELECT 
+      r.*,
+      v.brand,
+      v.model,
+      v.registration_number,
+      v.color
+    FROM rides r
+    LEFT JOIN vehicles v ON v.id = r.vehicle_id
+    WHERE r.id = ?
+      AND r.driver_id = ?
+    LIMIT 1
+    `,
+            [rideId, driverId]
+        );
+
+        return rows[0] || null;
+    },
+
+    async findRideBookingsForDriver(rideId, driverId) {
+        const [rows] = await db.execute(
+            `
+    SELECT 
+      b.*,
+      p.name AS passenger_name,
+      p.phone AS passenger_phone
+    FROM ride_bookings b
+    LEFT JOIN rides r ON r.id = b.ride_id
+    LEFT JOIN users p ON p.id = b.passenger_id
+    WHERE b.ride_id = ?
+      AND r.driver_id = ?
+    ORDER BY b.created_at DESC
+    `,
+            [rideId, driverId]
+        );
+
+        return rows;
+    },
+
+    async updateDriverRide(rideId, driverId, payload) {
+        const [result] = await db.execute(
+            `
+    UPDATE rides
+    SET 
+      price_per_seat = ?,
+      available_seats = ?,
+      pet_allowed = ?,
+      smoking_allowed = ?,
+      instant_booking = ?,
+      max_two_in_back = ?,
+      updated_at = NOW()
+    WHERE id = ?
+      AND driver_id = ?
+      AND status != 'cancelled'
+    `,
+            [
+                payload.price_per_seat,
+                payload.available_seats,
+                payload.pet_allowed,
+                payload.smoking_allowed,
+                payload.instant_booking,
+                payload.max_two_in_back,
+                rideId,
+                driverId,
+            ]
+        );
+
+        return result.affectedRows > 0;
+    },
 };
 
 module.exports = RideModel;

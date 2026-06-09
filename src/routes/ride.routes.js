@@ -8,6 +8,8 @@ const {
   getMyRides,
   cancelRide,
   getRouteOptions,
+  getDriverRideDetails,
+  updateRide,
 } = require("../controllers/ride.controller");
 
 const router = express.Router();
@@ -18,7 +20,9 @@ router.post("/", createRide);
 router.post("/route-options", authMiddleware, getRouteOptions);
 router.get("/", getRides);
 router.get("/my-rides", getMyRides);
-router.get("/:id", getRideById);
 router.patch("/:id/cancel", cancelRide);
+router.patch("/:id", authMiddleware, updateRide);
+router.get("/:id/driver", authMiddleware, getDriverRideDetails);
+router.get("/:id", getRideById);
 
 module.exports = router;

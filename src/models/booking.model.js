@@ -114,21 +114,35 @@ const BookingModel = {
     return rows;
   },
 
-  async findByDriver(driverId) {
+  async findByDriver({ driverId, rideId }) {
+    const params = [driverId];
+
+    let rideFilter = "";
+
+    if (rideId) {
+      rideFilter = "AND r.id = ?";
+      params.push(rideId);
+    }
+
     const [rows] = await db.execute(
       `
-      SELECT 
-        b.*,
-        p.name AS passenger_name,
-        p.phone AS passenger_phone,
-        r.driver_id
-      FROM ride_bookings b
-      LEFT JOIN rides r ON r.id = b.ride_id
-      LEFT JOIN users p ON p.id = b.passenger_id
-      WHERE r.driver_id = ?
-      ORDER BY b.created_at DESC
-      `,
-      [driverId]
+    SELECT 
+      b.*,
+      p.name AS passenger_name,
+      p.phone AS passenger_phone,
+      r.driver_id,
+      r.source_address,
+      r.destination_address,
+      r.ride_date,
+      r.departure_time
+    FROM ride_bookings b
+    LEFT JOIN rides r ON r.id = b.ride_id
+    LEFT JOIN users p ON p.id = b.passenger_id
+    WHERE r.driver_id = ?
+      ${rideFilter}
+    ORDER BY b.created_at DESC
+    `,
+      params
     );
 
     return rows;
