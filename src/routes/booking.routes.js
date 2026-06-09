@@ -11,7 +11,6 @@ const {
 
 const router = express.Router();
 
-router.use(authMiddleware);
 
 router.get("/", async (req, res) => {
   return res.status(200).json({
@@ -20,10 +19,10 @@ router.get("/", async (req, res) => {
   });
 });
 
-router.post("/", createBooking);
-router.get("/my-bookings", getMyBookings);
-router.get("/driver-bookings", getDriverBookings);
-router.get("/:id", getBookingById);
-router.patch("/:id/cancel", cancelBooking);
+router.post("/", authMiddleware, createBooking);
+router.get("/my-bookings", authMiddleware, getMyBookings);
+router.get("/driver-bookings", authMiddleware, getDriverBookings);
+router.get("/:id", authMiddleware, getBookingById);
+router.patch("/:id/cancel", authMiddleware, cancelBooking);
 
 module.exports = router;

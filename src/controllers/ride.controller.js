@@ -345,6 +345,82 @@ const updateRide = async (req, res) => {
   }
 };
 
+const startRide = async (req, res) => {
+  try {
+    const rideId = req.params.id;
+    const driverId = req.user.id;
+
+    const result = await RideModel.startRide(rideId, driverId);
+
+    if (!result.success) {
+      const messages = {
+        ride_not_found: "Ride not found.",
+        not_ride_owner: "You are not allowed to start this ride.",
+        invalid_status_cancelled: "Cancelled ride cannot be started.",
+        invalid_status_completed: "Completed ride cannot be started.",
+        invalid_status_in_progress: "Ride has already started.",
+      };
+
+      return res.status(400).json({
+        success: false,
+        message:
+          messages[result.reason] ||
+          "Ride cannot be started.",
+        reason: result.reason,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Ride started successfully.",
+    });
+  } catch (error) {
+    console.error("Start ride error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong while starting ride.",
+    });
+  }
+};
+
+const completeRide = async (req, res) => {
+  try {
+    const rideId = req.params.id;
+    const driverId = req.user.id;
+
+    const result = await RideModel.completeRide(rideId, driverId);
+
+    if (!result.success) {
+      const messages = {
+        ride_not_found: "Ride not found.",
+        not_ride_owner: "You are not allowed to complete this ride.",
+        invalid_status_scheduled: "Ride must be started before it can be completed.",
+        invalid_status_cancelled: "Cancelled ride cannot be completed.",
+        invalid_status_completed: "Ride is already completed.",
+      };
+
+      return res.status(400).json({
+        success: false,
+        message: messages[result.reason] || "Ride cannot be completed.",
+        reason: result.reason,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Ride completed successfully.",
+    });
+  } catch (error) {
+    console.error("Complete ride error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong while completing ride.",
+    });
+  }
+};
+
 function calculateEstimatedReachTime(rideDate, departureTime, durationSeconds) {
   if (!rideDate || !departureTime || !durationSeconds) return null;
 
@@ -366,4 +442,6 @@ module.exports = {
   getRouteOptions,
   getDriverRideDetails,
   updateRide,
+  startRide,
+  completeRide,
 };

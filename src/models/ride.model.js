@@ -317,6 +317,154 @@ const RideModel = {
 
         return result.affectedRows > 0;
     },
+
+    async startRide(rideId, driverId) {
+        const connection = await db.getConnection();
+
+        try {
+            await connection.beginTransaction();
+
+            const [rideRows] = await connection.execute(
+                `
+      SELECT id, driver_id, status
+      FROM rides
+      WHERE id = ?
+      LIMIT 1
+      `,
+                [rideId]
+            );
+
+            const ride = rideRows[0];
+
+            if (!ride) {
+                await connection.rollback();
+                return {
+                    success: false,
+                    reason: "ride_not_found",
+                };
+            }
+
+            if (Number(ride.driver_id) !== Number(driverId)) {
+                await connection.rollback();
+                return {
+                    success: false,
+                    reason: "not_ride_owner",
+                };
+            }
+
+            if (ride.status !== "scheduled") {
+                await connection.rollback();
+                return {
+                    success: false,
+                    reason: `invalid_status_${ride.status}`,
+                };
+            }
+
+            await connection.execute(
+                `
+      UPDATE rides
+      SET status = 'ongoing',
+          started_at = NOW(),
+          updated_at = NOW()
+      WHERE id = ?
+        AND driver_id = ?
+        AND status = 'scheduled'
+      `,
+                [rideId, driverId]
+            );
+
+            await connection.execute(
+                `
+      UPDATE ride_bookings
+      SET status = 'ongoing',
+          updated_at = NOW()
+      WHERE ride_id = ?
+        AND status = 'accepted'
+      `,
+                [rideId]
+            );
+
+            await connection.commit();
+
+            return {
+                success: true,
+            };
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
+    },
+
+    async completeRide(rideId, driverId) {
+        const connection = await db.getConnection();
+        try {
+            await connection.beginTransaction();
+
+            const [rideRows] = await connection.execute(
+                `
+      SELECT id, driver_id, status
+      FROM rides
+      WHERE id = ?
+      LIMIT 1
+      `,
+                [rideId]
+            );
+            const ride = rideRows[0];
+            if (!ride) {
+                await connection.rollback();
+                return { success: false, reason: "ride_not_found" };
+            }
+
+            if (Number(ride.driver_id) !== Number(driverId)) {
+                await connection.rollback();
+                return { success: false, reason: "not_ride_owner" };
+            }
+
+            if (ride.status !== "ongoing") {
+                await connection.rollback();
+                return {
+                    success: false,
+                    reason: `invalid_status_${ride.status}`,
+                };
+            }
+
+            await connection.execute(
+                `
+      UPDATE rides
+      SET status = 'completed',
+          completed_at = NOW(),
+          updated_at = NOW()
+      WHERE id = ?
+        AND driver_id = ?
+        AND status = 'ongoing'
+      `,
+                [rideId, driverId]
+            );
+
+            await connection.execute(
+                `
+      UPDATE ride_bookings
+      SET status = 'completed',
+          completed_at = NOW(),
+          updated_at = NOW()
+      WHERE ride_id = ?
+        AND status = 'ongoing'
+      `,
+                [rideId]
+            );
+
+            await connection.commit();
+
+            return { success: true };
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
+    }
 };
 
 module.exports = RideModel;

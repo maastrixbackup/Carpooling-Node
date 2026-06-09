@@ -9,6 +9,7 @@ const vehicleRoutes = require("./routes/vehicle.routes");
 const rideRoutes = require("./routes/ride.routes");
 const bookingRoutes = require("./routes/booking.routes");
 const homeRoutes = require("./routes/bootstrap/home.routes");
+const reviewRoutes = require("./routes/review.routes");
 
 const { errorHandler } = require("./middleware/error.middleware");
 
@@ -31,6 +32,7 @@ app.use("/api/vehicles", vehicleRoutes);
 app.use("/api/rides", rideRoutes);
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/bootstrap", homeRoutes);
+app.use("/api/reviews", reviewRoutes);
 
 app.use(errorHandler);
 

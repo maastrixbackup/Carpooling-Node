@@ -10,19 +10,26 @@ const {
   getRouteOptions,
   getDriverRideDetails,
   updateRide,
+  startRide,
+  completeRide,
 } = require("../controllers/ride.controller");
 
 const router = express.Router();
 
 router.use(authMiddleware);
 
-router.post("/", createRide);
 router.post("/route-options", authMiddleware, getRouteOptions);
-router.get("/", getRides);
-router.get("/my-rides", getMyRides);
-router.patch("/:id/cancel", cancelRide);
-router.patch("/:id", authMiddleware, updateRide);
+router.post("/", authMiddleware, createRide);
+router.get("/my-rides", authMiddleware, getMyRides);
+
 router.get("/:id/driver", authMiddleware, getDriverRideDetails);
 router.get("/:id", getRideById);
+router.get("/", getRides);
+
+router.patch("/:id/start", authMiddleware, startRide);
+router.patch("/:id/complete", authMiddleware, completeRide);
+
+router.patch("/:id/cancel", authMiddleware, cancelRide);
+router.patch("/:id", authMiddleware, updateRide);
 
 module.exports = router;

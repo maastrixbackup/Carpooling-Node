@@ -1,4 +1,5 @@
 const BookingModel = require("../models/booking.model");
+const reviewModel = require("../models/review.model");
 const RideModel = require("../models/ride.model");
 
 const generateBookingCode = () => {
@@ -8,7 +9,6 @@ const generateBookingCode = () => {
 const createBooking = async (req, res) => {
   try {
     const { ride_id, seats } = req.body;
-
     if (!ride_id || !seats) {
       return res.status(400).json({
         success: false,
@@ -50,7 +50,7 @@ const createBooking = async (req, res) => {
 
     const seatUpdated = await RideModel.decreaseAvailableSeats(
       ride.id,
-      requestedSeats
+      requestedSeats,
     );
 
     if (!seatUpdated) {
@@ -97,7 +97,6 @@ const createBooking = async (req, res) => {
 const getMyBookings = async (req, res) => {
   try {
     const bookings = await BookingModel.findByPassenger(req.user.id);
-
     return res.status(200).json({
       success: true,
       message: "Bookings fetched successfully.",
@@ -138,7 +137,7 @@ const getDriverBookings = async (req, res) => {
 const getBookingById = async (req, res) => {
   try {
     const booking = await BookingModel.findById(req.params.id, req.user.id);
-
+    const hasReviewed = await reviewModel.hasReviewed(booking.id);
     if (!booking) {
       return res.status(404).json({
         success: false,
@@ -149,7 +148,12 @@ const getBookingById = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Booking fetched successfully.",
-      data: { booking },
+      data: {
+        booking: {
+          ...booking,
+          has_reviewed: hasReviewed,
+        },
+      },
     });
   } catch (error) {
     console.error("Get booking error:", error);
@@ -182,7 +186,7 @@ const cancelBooking = async (req, res) => {
     const updated = await BookingModel.updateStatus(
       booking.id,
       req.user.id,
-      "cancelled"
+      "cancelled",
     );
 
     if (updated) {
