@@ -179,18 +179,16 @@ const getRideById = async (req, res) => {
 const getMyRides = async (req, res) => {
   try {
     const rides = await RideModel.findByDriver(req.user.id);
-
     return res.status(200).json({
       success: true,
-      message: "My rides fetched successfully.",
+      message: "My published rides fetched successfully.",
       data: { rides },
     });
   } catch (error) {
-    console.error("Get my rides error:", error);
-
+    console.error("Get my published rides error:", error);
     return res.status(500).json({
       success: false,
-      message: "Something went wrong while fetching your rides.",
+      message: "Something went wrong while fetching published rides.",
     });
   }
 };

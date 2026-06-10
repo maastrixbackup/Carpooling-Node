@@ -58,10 +58,26 @@ const BookingModel = {
         rideTime,
         pricePerSeat,
         totalPrice,
-      ]
+      ],
     );
 
     return this.findById(result.insertId, passengerId);
+  },
+
+  async findActiveBookingByPassengerAndRide(passengerId, rideId) {
+    const [rows] = await db.execute(
+      `
+    SELECT id, status
+    FROM ride_bookings
+    WHERE passenger_id = ?
+      AND ride_id = ?
+      AND status NOT IN ('cancelled', 'rejected')
+    LIMIT 1
+    `,
+      [passengerId, rideId],
+    );
+
+    return rows[0] || null;
   },
 
   async findById(id, userId) {
@@ -84,7 +100,7 @@ const BookingModel = {
         AND (b.passenger_id = ? OR r.driver_id = ?)
       LIMIT 1
       `,
-      [id, userId, userId]
+      [id, userId, userId],
     );
 
     return rows[0] || null;
@@ -108,7 +124,7 @@ const BookingModel = {
       WHERE b.passenger_id = ?
       ORDER BY b.created_at DESC
       `,
-      [passengerId]
+      [passengerId],
     );
 
     return rows;
@@ -142,7 +158,7 @@ const BookingModel = {
       ${rideFilter}
     ORDER BY b.created_at DESC
     `,
-      params
+      params,
     );
 
     return rows;
@@ -162,7 +178,7 @@ const BookingModel = {
       WHERE b.id = ?
         AND (b.passenger_id = ? OR r.driver_id = ?)
       `,
-      [status, status, status, status, id, userId, userId]
+      [status, status, status, status, id, userId, userId],
     );
 
     return result.affectedRows > 0;

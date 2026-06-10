@@ -10,7 +10,9 @@ const rideRoutes = require("./routes/ride.routes");
 const bookingRoutes = require("./routes/booking.routes");
 const homeRoutes = require("./routes/bootstrap/home.routes");
 const reviewRoutes = require("./routes/review.routes");
-
+const userRoutes = require("./routes/user.routes");
+const pushTokenRoutes = require("./routes/notification/pushToken.routes");
+const notificationRoutes = require("./routes/notification/notification.routes");
 const { errorHandler } = require("./middleware/error.middleware");
 
 const app = express();
@@ -33,6 +35,9 @@ app.use("/api/rides", rideRoutes);
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/bootstrap", homeRoutes);
 app.use("/api/reviews", reviewRoutes);
+app.use("/api/users", userRoutes);
+app.use("/api/push-tokens", pushTokenRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 app.use(errorHandler);
 

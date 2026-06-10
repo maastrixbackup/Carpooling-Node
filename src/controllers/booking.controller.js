@@ -1,6 +1,7 @@
 const BookingModel = require("../models/booking.model");
 const reviewModel = require("../models/review.model");
 const RideModel = require("../models/ride.model");
+const { sendPushToUsers } = require("../services/notification.service");
 
 const generateBookingCode = () => {
   return `CP${Date.now()}${Math.floor(Math.random() * 900 + 100)}`;
@@ -41,6 +42,19 @@ const createBooking = async (req, res) => {
       });
     }
 
+    const existingBooking =
+      await BookingModel.findActiveBookingByPassengerAndRide(
+        req.user.id,
+        ride.id,
+      );
+
+    if (existingBooking) {
+      return res.status(409).json({
+        success: false,
+        message: "You have already booked this ride.",
+      });
+    }
+
     if (ride.available_seats < requestedSeats) {
       return res.status(400).json({
         success: false,
@@ -77,6 +91,28 @@ const createBooking = async (req, res) => {
       rideTime: ride.departure_time,
       pricePerSeat: ride.price_per_seat,
       totalPrice,
+    });
+
+    await sendPushToUsers({
+      userIds: [ride.driver_id],
+      title: "New Ride Booking",
+      body: `${req.user.name} has reserved ${seats} seat${seats > 1 ? "s" : ""} on your upcoming trip.`,
+      data: {
+        screen: "driver-ride",
+        rideId: ride.id,
+        type: "booking_created",
+      },
+    });
+
+    await sendPushToUsers({
+      userIds: [req.user.id],
+      title: "Booking Confirmed",
+      body: `Hi ${req.user.name}, Your seat reservation has been successfully confirmed.`,
+      data: {
+        screen: "bookings",
+        rideId: ride.id,
+        type: "booking_created",
+      },
     });
 
     return res.status(201).json({
