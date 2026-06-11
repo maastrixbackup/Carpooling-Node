@@ -28,29 +28,11 @@ const NotificationModel = {
 
   async incrementReceivedByTokenIds(tokenIds) {
     if (!Array.isArray(tokenIds) || tokenIds.length === 0) return;
-
-    const { data: tokens, error } = await supabaseAdmin
-      .from("user_push_tokens")
-      .select("id, notifications_received")
-      .in("id", tokenIds);
+    const { error } = await supabaseAdmin.rpc("increment_push_received", {
+      token_ids: tokenIds,
+    });
 
     if (error) throw error;
-
-    if (!tokens?.length) return;
-
-    const updates = tokens.map((token) => ({
-      id: token.id,
-      notifications_received: Number(token.notifications_received || 0) + 1,
-      updated_at: new Date().toISOString(),
-    }));
-
-    const { error: updateError } = await supabaseAdmin
-      .from("user_push_tokens")
-      .upsert(updates, {
-        onConflict: "id",
-      });
-
-    if (updateError) throw updateError;
   },
 
   async deactivateTokens(tokens) {

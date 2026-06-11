@@ -76,7 +76,7 @@ const sendPushToUsers = async ({ userIds, title, body, data = {} }) => {
 
 const broadcastPush = async ({ title, body, data = {} }) => {
   const tokens = await NotificationModel.getAllActivePushTokens();
-
+  // console.log("TOKENS => ", tokens);
   return sendPushToTokens({
     tokens,
     title,

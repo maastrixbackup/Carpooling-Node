@@ -40,7 +40,6 @@ const createVehicle = async (req, res) => {
       normalizeRegistrationNumber(registration_number);
 
     const existing = await VehicleModel.findByRegistrationNumber(
-      req.supabase,
       normalizedRegistration,
     );
 

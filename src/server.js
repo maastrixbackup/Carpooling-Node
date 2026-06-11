@@ -40,25 +40,6 @@ app.use("/api/push-tokens", pushTokenRoutes);
 app.use("/api/notifications", notificationRoutes);
 
 
-const router = express.Router();
-router.get("/test-admin", async (req, res) => {
-  const { data, error } = await supabaseAdmin
-    .from("user_details")
-    .select("*")
-    .limit(5);
-
-  if (error) {
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-    });
-  }
-
-  return res.json({
-    success: true,
-    data,
-  });
-});
 
 
 

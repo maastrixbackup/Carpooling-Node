@@ -12,12 +12,12 @@ const isAdminUser = (req) => {
 
 const broadcastNotification = async (req, res) => {
   try {
-    if (!isAdminUser(req)) {
-      return res.status(403).json({
-        success: false,
-        message: "Admin access required.",
-      });
-    }
+    // if (!isAdminUser(req)) {
+    //   return res.status(403).json({
+    //     success: false,
+    //     message: "Admin access required.",
+    //   });
+    // }
 
     const { title, body, data } = req.body;
 

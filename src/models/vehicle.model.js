@@ -1,3 +1,5 @@
+const { supabaseAdmin } = require("../config/supabase");
+
 const VehicleModel = {
   async create(
     supabase,
@@ -65,8 +67,8 @@ const VehicleModel = {
     return data || null;
   },
 
-  async findByRegistrationNumber(supabase, registrationNumber) {
-    const { data, error } = await supabase
+  async findByRegistrationNumber(registrationNumber) {
+    const { data, error } = await supabaseAdmin
       .from("vehicles")
       .select("id, user_id, registration_number")
       .eq("registration_number", registrationNumber)
@@ -76,7 +78,7 @@ const VehicleModel = {
 
     return data || null;
   },
-
+  
   async update(supabase, id, userId, payload) {
     const updatePayload = {
       vehicle_type: payload.vehicleType,
