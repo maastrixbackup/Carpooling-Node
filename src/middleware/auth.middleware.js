@@ -1,45 +1,49 @@
-const jwt = require("jsonwebtoken");
-const UserModel = require("../models/user.model");
+const { createUserSupabaseClient, supabaseAdmin } = require("../config/supabase");
 
-const authMiddleware = async (req, res, next) => {
+const supabaseAuthMiddleware = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return res.status(401).json({
         success: false,
-        message: "Unauthorized. Token missing.",
+        message: "Authorization token is required.",
       });
     }
 
     const token = authHeader.split(" ")[1];
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const {
+      data: { user },
+      error,
+    } = await supabaseAdmin.auth.getUser(token);
 
-    const user = await UserModel.findById(decoded.id);
-
-    if (!user) {
+    if (error || !user) {
       return res.status(401).json({
         success: false,
-        message: "Unauthorized. User not found.",
+        message: "Invalid or expired session.",
       });
     }
 
-    if (user.status !== "active") {
-      return res.status(403).json({
-        success: false,
-        message: "Account is not active.",
-      });
-    }
+    req.user = {
+      id: user.id,
+      email: user.email,
+      phone: user.phone,
+      metadata: user.user_metadata || {},
+      appMetadata: user.app_metadata || {},
+    };
 
-    req.user = user;
+    req.supabase = createUserSupabaseClient(token);
+
     next();
-  } catch {
-    return res.status(401).json({
+  } catch (error) {
+    console.error("Supabase auth middleware error:", error);
+
+    return res.status(500).json({
       success: false,
-      message: "Invalid or expired token.",
+      message: "Authentication failed.",
     });
   }
 };
 
-module.exports = authMiddleware;
+module.exports = supabaseAuthMiddleware;

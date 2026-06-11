@@ -4,6 +4,8 @@ const {
     login,
     me,
     logout,
+    refreshSession,
+    forgotPassword
 } = require("../controllers/auth.controller");
 const authMiddleware = require("../middleware/auth.middleware");
 
@@ -18,8 +20,9 @@ router.get("/", (req, res) => {
 
 router.post("/signup", signup);
 router.post("/login", login);
-
-router.get("/me", authMiddleware, me);
+router.post("/refresh", refreshSession);
+router.post("/forgot-password", forgotPassword);
 router.post("/logout", authMiddleware, logout);
+router.get("/me", authMiddleware, me);
 
 module.exports = router;

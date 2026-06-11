@@ -23,10 +23,10 @@ app.use(express.json());
 app.use(morgan("dev"));
 
 app.get("/", (req, res) => {
-    res.json({
-        success: true,
-        message: "Car Pooling API running",
-    });
+  res.json({
+    success: true,
+    message: "Car Pooling API running",
+  });
 });
 
 app.use("/api/auth", authRoutes);
@@ -39,10 +39,33 @@ app.use("/api/users", userRoutes);
 app.use("/api/push-tokens", pushTokenRoutes);
 app.use("/api/notifications", notificationRoutes);
 
+
+const router = express.Router();
+router.get("/test-admin", async (req, res) => {
+  const { data, error } = await supabaseAdmin
+    .from("user_details")
+    .select("*")
+    .limit(5);
+
+  if (error) {
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+
+  return res.json({
+    success: true,
+    data,
+  });
+});
+
+
+
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT,"0.0.0.0", () => {
-    console.log(`🚗 Car Pooling API running on port ${PORT}`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`🚗 Car Pooling API running on port ${PORT}`);
 });
