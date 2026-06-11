@@ -2,14 +2,25 @@ const BookingModel = require("../models/booking.model");
 const reviewModel = require("../models/review.model");
 const RideModel = require("../models/ride.model");
 const { sendPushToUsers } = require("../services/notification.service");
+const { logError } = require("../utils/logger");
 
 const generateBookingCode = () => {
   return `CP${Date.now()}${Math.floor(Math.random() * 900 + 100)}`;
 };
 
+const getDisplayName = (user) => {
+  return (
+    user?.metadata?.full_name ||
+    user?.metadata?.name ||
+    user?.email ||
+    "Passenger"
+  );
+};
+
 const createBooking = async (req, res) => {
   try {
     const { ride_id, seats } = req.body;
+
     if (!ride_id || !seats) {
       return res.status(400).json({
         success: false,
@@ -19,14 +30,14 @@ const createBooking = async (req, res) => {
 
     const requestedSeats = Number(seats);
 
-    if (requestedSeats <= 0) {
+    if (!Number.isFinite(requestedSeats) || requestedSeats <= 0) {
       return res.status(400).json({
         success: false,
         message: "Seats must be greater than 0.",
       });
     }
 
-    const ride = await RideModel.findForBooking(ride_id);
+    const ride = await RideModel.findForBooking(req.supabase, ride_id);
 
     if (!ride) {
       return res.status(404).json({
@@ -35,7 +46,7 @@ const createBooking = async (req, res) => {
       });
     }
 
-    if (ride.driver_id === req.user.id) {
+    if (String(ride.driver_id) === String(req.user.id)) {
       return res.status(400).json({
         success: false,
         message: "You cannot book your own ride.",
@@ -44,6 +55,7 @@ const createBooking = async (req, res) => {
 
     const existingBooking =
       await BookingModel.findActiveBookingByPassengerAndRide(
+        req.supabase,
         req.user.id,
         ride.id,
       );
@@ -55,7 +67,7 @@ const createBooking = async (req, res) => {
       });
     }
 
-    if (ride.available_seats < requestedSeats) {
+    if (Number(ride.available_seats) < requestedSeats) {
       return res.status(400).json({
         success: false,
         message: "Not enough seats available.",
@@ -63,6 +75,7 @@ const createBooking = async (req, res) => {
     }
 
     const seatUpdated = await RideModel.decreaseAvailableSeats(
+      req.supabase,
       ride.id,
       requestedSeats,
     );
@@ -76,7 +89,7 @@ const createBooking = async (req, res) => {
 
     const totalPrice = Number(ride.price_per_seat) * requestedSeats;
 
-    const booking = await BookingModel.createBooking({
+    const booking = await BookingModel.createBooking(req.supabase, {
       bookingCode: generateBookingCode(),
       rideId: ride.id,
       passengerId: req.user.id,
@@ -93,10 +106,14 @@ const createBooking = async (req, res) => {
       totalPrice,
     });
 
+    const passengerName = getDisplayName(req.user);
+
     await sendPushToUsers({
       userIds: [ride.driver_id],
       title: "New Ride Booking",
-      body: `${req.user.name} has reserved ${seats} seat${seats > 1 ? "s" : ""} on your upcoming trip.`,
+      body: `${passengerName} has reserved ${requestedSeats} seat${
+        requestedSeats > 1 ? "s" : ""
+      } on your upcoming trip.`,
       data: {
         screen: "driver-ride",
         rideId: ride.id,
@@ -107,10 +124,10 @@ const createBooking = async (req, res) => {
     await sendPushToUsers({
       userIds: [req.user.id],
       title: "Booking Confirmed",
-      body: `Hi ${req.user.name}, Your seat reservation has been successfully confirmed.`,
+      body: "Your seat reservation has been successfully confirmed.",
       data: {
-        screen: "bookings",
-        rideId: ride.id,
+        screen: "booking",
+        bookingId: booking.id,
         type: "booking_created",
       },
     });
@@ -121,7 +138,7 @@ const createBooking = async (req, res) => {
       data: { booking },
     });
   } catch (error) {
-    console.error("Create booking error:", error);
+    console.error("[ERROR] Create booking:", error?.message || error);
 
     return res.status(500).json({
       success: false,
@@ -132,14 +149,18 @@ const createBooking = async (req, res) => {
 
 const getMyBookings = async (req, res) => {
   try {
-    const bookings = await BookingModel.findByPassenger(req.user.id);
+    const bookings = await BookingModel.findByPassenger(
+      req.supabase,
+      req.user.id,
+    );
+
     return res.status(200).json({
       success: true,
       message: "Bookings fetched successfully.",
       data: { bookings },
     });
   } catch (error) {
-    console.error("Get my bookings error:", error);
+    console.error("[ERROR] Get my bookings:", error?.message || error);
 
     return res.status(500).json({
       success: false,
@@ -150,7 +171,7 @@ const getMyBookings = async (req, res) => {
 
 const getDriverBookings = async (req, res) => {
   try {
-    const bookings = await BookingModel.findByDriver({
+    const bookings = await BookingModel.findByDriver(req.supabase, {
       driverId: req.user.id,
       rideId: req.query.ride_id,
     });
@@ -161,7 +182,7 @@ const getDriverBookings = async (req, res) => {
       data: { bookings },
     });
   } catch (error) {
-    console.error("Get driver bookings error:", error);
+    console.error("[ERROR] Get driver bookings:", error?.message || error);
 
     return res.status(500).json({
       success: false,
@@ -172,14 +193,23 @@ const getDriverBookings = async (req, res) => {
 
 const getBookingById = async (req, res) => {
   try {
-    const booking = await BookingModel.findById(req.params.id, req.user.id);
-    const hasReviewed = await reviewModel.hasReviewed(booking.id);
+    const booking = await BookingModel.findById(
+      req.supabase,
+      req.params.id,
+      req.user.id,
+    );
+
     if (!booking) {
       return res.status(404).json({
         success: false,
         message: "Booking not found.",
       });
     }
+
+    const hasReviewed = await reviewModel.hasReviewed(
+      req.supabase,
+      booking.id,
+    );
 
     return res.status(200).json({
       success: true,
@@ -192,7 +222,7 @@ const getBookingById = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Get booking error:", error);
+    console.error("[ERROR] Get booking:", error?.message || error);
 
     return res.status(500).json({
       success: false,
@@ -203,7 +233,11 @@ const getBookingById = async (req, res) => {
 
 const cancelBooking = async (req, res) => {
   try {
-    const booking = await BookingModel.findById(req.params.id, req.user.id);
+    const booking = await BookingModel.findById(
+      req.supabase,
+      req.params.id,
+      req.user.id,
+    );
 
     if (!booking) {
       return res.status(404).json({
@@ -219,14 +253,26 @@ const cancelBooking = async (req, res) => {
       });
     }
 
+    if (["completed", "ongoing"].includes(booking.status)) {
+      return res.status(400).json({
+        success: false,
+        message: "This booking can no longer be cancelled.",
+      });
+    }
+
     const updated = await BookingModel.updateStatus(
+      req.supabase,
       booking.id,
       req.user.id,
       "cancelled",
     );
 
     if (updated) {
-      await RideModel.increaseAvailableSeats(booking.ride_id, booking.seats);
+      await RideModel.increaseAvailableSeats(
+        req.supabase,
+        booking.ride_id,
+        booking.seats,
+      );
     }
 
     return res.status(200).json({
@@ -234,7 +280,8 @@ const cancelBooking = async (req, res) => {
       message: "Booking cancelled successfully.",
     });
   } catch (error) {
-    console.error("Cancel booking error:", error);
+    logError("CANCEL BOOKING", error)
+    console.error("[ERROR] Cancel booking:", error?.message || error);
 
     return res.status(500).json({
       success: false,

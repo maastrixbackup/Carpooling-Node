@@ -1,153 +1,139 @@
-const db = require("../config/db");
-
 const VehicleModel = {
-  async create({
-    userId,
-    vehicleType,
-    brand,
-    model,
-    manufactureYear,
-    registrationNumber,
-    rcNumber,
-    color,
-    seats,
-    availableSeats,
-    fuelType,
-  }) {
-    const [result] = await db.execute(
-      `
-      INSERT INTO vehicles
-      (
-        user_id,
-        vehicle_type,
+  async create(
+    supabase,
+    {
+      userId,
+      vehicleType,
+      brand,
+      model,
+      manufactureYear,
+      registrationNumber,
+      rcNumber,
+      color,
+      seats,
+      availableSeats,
+      fuelType,
+    },
+  ) {
+    const { data, error } = await supabase
+      .from("vehicles")
+      .insert({
+        user_id: userId,
+        vehicle_type: vehicleType,
         brand,
         model,
-        manufacture_year,
-        registration_number,
-        rc_number,
-        color,
+        manufacture_year: manufactureYear || null,
+        registration_number: registrationNumber,
+        rc_number: rcNumber || null,
+        color: color || null,
         seats,
-        available_seats,
-        fuel_type,
-        status,
-        created_at,
-        updated_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())
-      `,
-      [
-        userId,
-        vehicleType,
-        brand,
-        model,
-        manufactureYear || null,
-        registrationNumber,
-        rcNumber || null,
-        color || null,
-        seats,
-        availableSeats,
-        fuelType || null,
-      ]
-    );
+        available_seats: availableSeats,
+        fuel_type: fuelType || null,
+        status: "active",
+      })
+      .select("*")
+      .single();
 
-    return this.findById(result.insertId, userId);
+    if (error) throw error;
+
+    return data;
   },
 
-  async findAllByUser(userId) {
-    const [rows] = await db.execute(
-      `
-      SELECT *
-      FROM vehicles
-      WHERE user_id = ?
-        AND status != 'blocked'
-      ORDER BY created_at DESC
-      `,
-      [userId]
-    );
+  async findAllByUser(supabase, userId) {
+    const { data, error } = await supabase
+      .from("vehicles")
+      .select("*")
+      .eq("user_id", userId)
+      .neq("status", "blocked")
+      .order("created_at", { ascending: false });
 
-    return rows;
+    if (error) throw error;
+
+    return data || [];
   },
 
-  async findById(id, userId) {
-    const [rows] = await db.execute(
-      `
-      SELECT *
-      FROM vehicles
-      WHERE id = ?
-        AND user_id = ?
-      LIMIT 1
-      `,
-      [id, userId]
-    );
+  async findById(supabase, id, userId) {
+    const { data, error } = await supabase
+      .from("vehicles")
+      .select("*")
+      .eq("id", id)
+      .eq("user_id", userId)
+      .maybeSingle();
 
-    return rows[0] || null;
+    if (error) throw error;
+
+    return data || null;
   },
 
-  async findByRegistrationNumber(registrationNumber) {
-    const [rows] = await db.execute(
-      `
-      SELECT id
-      FROM vehicles
-      WHERE registration_number = ?
-      LIMIT 1
-      `,
-      [registrationNumber]
-    );
+  async findByRegistrationNumber(supabase, registrationNumber) {
+    const { data, error } = await supabase
+      .from("vehicles")
+      .select("id, user_id, registration_number")
+      .eq("registration_number", registrationNumber)
+      .maybeSingle();
 
-    return rows[0] || null;
+    if (error) throw error;
+
+    return data || null;
   },
 
-  async update(id, userId, payload) {
-    const [result] = await db.execute(
-      `
-      UPDATE vehicles
-      SET
-        vehicle_type = ?,
-        brand = ?,
-        model = ?,
-        manufacture_year = ?,
-        registration_number = ?,
-        rc_number = ?,
-        color = ?,
-        seats = ?,
-        available_seats = ?,
-        fuel_type = ?,
-        updated_at = NOW()
-      WHERE id = ?
-        AND user_id = ?
-      `,
-      [
-        payload.vehicleType,
-        payload.brand,
-        payload.model,
-        payload.manufactureYear || null,
-        payload.registrationNumber,
-        payload.rcNumber || null,
-        payload.color || null,
-        payload.seats,
-        payload.availableSeats,
-        payload.fuelType || null,
-        id,
-        userId,
-      ]
-    );
+  async update(supabase, id, userId, payload) {
+    const updatePayload = {
+      vehicle_type: payload.vehicleType,
+      brand: payload.brand,
+      model: payload.model,
+      manufacture_year: payload.manufactureYear || null,
+      registration_number: payload.registrationNumber,
+      rc_number: payload.rcNumber || null,
+      color: payload.color || null,
+      seats: payload.seats,
+      available_seats: payload.availableSeats,
+      fuel_type: payload.fuelType || null,
+      updated_at: new Date().toISOString(),
+    };
 
-    if (result.affectedRows === 0) return null;
+    const { data, error } = await supabase
+      .from("vehicles")
+      .update(updatePayload)
+      .eq("id", id)
+      .eq("user_id", userId)
+      .select("*")
+      .maybeSingle();
 
-    return this.findById(id, userId);
+    if (error) throw error;
+
+    return data || null;
   },
 
-  async delete(id, userId) {
-    const [result] = await db.execute(
-      `
-    DELETE FROM vehicles
-    WHERE id = ?
-      AND user_id = ?
-    `,
-      [id, userId]
-    );
+  async delete(supabase, id, userId) {
+    const { data, error } = await supabase
+      .from("vehicles")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", userId)
+      .select("id")
+      .maybeSingle();
 
-    return result.affectedRows > 0;
+    if (error) throw error;
+
+    return !!data;
+  },
+
+  async softDelete(supabase, id, userId) {
+    const { data, error } = await supabase
+      .from("vehicles")
+      .update({
+        status: "inactive",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id)
+      .eq("user_id", userId)
+      .select("id")
+      .maybeSingle();
+
+    if (error) throw error;
+
+    return !!data;
   },
 };
 

@@ -6,10 +6,10 @@ const getHomeBootstrap = async (req, res) => {
 
     const [stats, upcomingBooking, popularRoutes, availableRides] =
       await Promise.all([
-        HomeModel.getUserStats(req.user.id),
-        HomeModel.getUpcomingBooking(req.user.id),
-        HomeModel.getPopularRoutes(),
-        HomeModel.getAvailableRides({
+        HomeModel.getUserStats(req.supabase, req.user.id),
+        HomeModel.getUpcomingBooking(req.supabase, req.user.id),
+        HomeModel.getPopularRoutes(req.supabase),
+        HomeModel.getAvailableRides(req.supabase, {
           source,
           destination,
           rideDate: ride_date,
@@ -29,7 +29,7 @@ const getHomeBootstrap = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Home bootstrap error:", error);
+    console.error("[ERROR] Home bootstrap:", error?.message || error);
 
     return res.status(500).json({
       success: false,

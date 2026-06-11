@@ -1,131 +1,110 @@
-const db = require("../../config/db");
-
 const HomeModel = {
-  async getUserStats(userId) {
-    const [[bookingStats]] = await db.execute(
-      `
-      SELECT 
-        COUNT(*) AS total_trips,
-        COALESCE(SUM(total_price), 0) AS total_spent
-      FROM ride_bookings
-      WHERE passenger_id = ?
-        AND status IN ('accepted', 'completed', 'pending')
-      `,
-      [userId]
-    );
+  async getUserStats(supabase, userId) {
+    const [{ count: bookingsCount }, { count: publishedRidesCount }] =
+      await Promise.all([
+        supabase
+          .from("ride_bookings")
+          .select("id", { count: "exact", head: true })
+          .eq("passenger_id", userId),
 
-    const [[publishedStats]] = await db.execute(
-      `
-      SELECT COUNT(*) AS published_rides
-      FROM rides
-      WHERE driver_id = ?
-      `,
-      [userId]
-    );
+        supabase
+          .from("rides")
+          .select("id", { count: "exact", head: true })
+          .eq("driver_id", userId),
+      ]);
 
     return {
-      total_trips: bookingStats.total_trips || 0,
-      total_spent: Number(bookingStats.total_spent || 0),
-      published_rides: publishedStats.published_rides || 0,
-      co2_saved_kg: Math.round((bookingStats.total_trips || 0) * 1.8),
+      total_bookings: bookingsCount || 0,
+      total_published_rides: publishedRidesCount || 0,
     };
   },
 
-  async getUpcomingBooking(userId) {
-    const [rows] = await db.execute(
-      `
-      SELECT 
-        b.*,
-        u.name AS driver_name,
-        v.brand,
-        v.model,
-        v.registration_number,
-        v.color
-      FROM ride_bookings b
-      LEFT JOIN rides r ON r.id = b.ride_id
-      LEFT JOIN users u ON u.id = r.driver_id
-      LEFT JOIN vehicles v ON v.id = r.vehicle_id
-      WHERE b.passenger_id = ?
-        AND b.status IN ('pending', 'accepted')
-        AND b.ride_date >= CURDATE()
-      ORDER BY b.ride_date ASC, b.ride_time ASC
-      LIMIT 1
-      `,
-      [userId]
-    );
+  async getUpcomingBooking(supabase, userId) {
+    const { data, error } = await supabase
+      .from("ride_bookings")
+      .select(`
+        *,
+        rides (
+          id,
+          driver_id,
+          vehicle_id,
+          source_address,
+          destination_address,
+          ride_date,
+          departure_time,
+          vehicles (
+            brand,
+            model,
+            registration_number,
+            color
+          )
+        )
+      `)
+      .eq("passenger_id", userId)
+      .in("status", ["pending", "accepted", "ongoing", "payment_pending"])
+      .gte("ride_date", new Date().toISOString().slice(0, 10))
+      .order("ride_date", { ascending: true })
+      .order("ride_time", { ascending: true })
+      .limit(1)
+      .maybeSingle();
 
-    return rows[0] || null;
+    if (error) throw error;
+
+    return data || null;
   },
 
-  async getPopularRoutes() {
-    const [rows] = await db.execute(
-      `
-      SELECT 
-        source_address,
-        destination_address,
-        COUNT(*) AS ride_count,
-        MIN(price_per_seat) AS starting_price
-      FROM rides
-      WHERE status = 'scheduled'
-        AND ride_date >= CURDATE()
-      GROUP BY source_address, destination_address
-      ORDER BY ride_count DESC
-      LIMIT 8
-      `
-    );
+  async getPopularRoutes(supabase) {
+    const { data, error } = await supabase
+      .from("rides")
+      .select("source_address, destination_address")
+      .eq("status", "scheduled")
+      .limit(10);
 
-    return rows;
+    if (error) throw error;
+
+    return data || [];
   },
 
-  async getAvailableRides({ source, destination, rideDate, seats }) {
-    const values = [];
-    let where = `
-      WHERE r.status = 'scheduled'
-        AND r.ride_date >= CURDATE()
-        AND r.available_seats > 0
-    `;
+  async getAvailableRides(supabase, filters = {}) {
+    let query = supabase
+      .from("rides")
+      .select(`
+        *,
+        vehicles (
+          brand,
+          model,
+          registration_number,
+          color,
+          rating
+        )
+      `)
+      .eq("status", "scheduled")
+      .gt("available_seats", 0)
+      .order("ride_date", { ascending: true })
+      .order("departure_time", { ascending: true })
+      .limit(10);
 
-    if (source) {
-      where += ` AND r.source_address LIKE ?`;
-      values.push(`%${source}%`);
+    if (filters.source) {
+      query = query.ilike("source_address", `%${filters.source}%`);
     }
 
-    if (destination) {
-      where += ` AND r.destination_address LIKE ?`;
-      values.push(`%${destination}%`);
+    if (filters.destination) {
+      query = query.ilike("destination_address", `%${filters.destination}%`);
     }
 
-    if (rideDate) {
-      where += ` AND r.ride_date = ?`;
-      values.push(rideDate);
+    if (filters.rideDate) {
+      query = query.eq("ride_date", filters.rideDate);
     }
 
-    if (seats) {
-      where += ` AND r.available_seats >= ?`;
-      values.push(Number(seats));
+    if (filters.seats) {
+      query = query.gte("available_seats", Number(filters.seats));
     }
 
-    const [rows] = await db.execute(
-      `
-      SELECT 
-        r.*,
-        u.name AS driver_name,
-        v.brand,
-        v.model,
-        v.registration_number,
-        v.color,
-        v.rating AS vehicle_rating
-      FROM rides r
-      LEFT JOIN users u ON u.id = r.driver_id
-      LEFT JOIN vehicles v ON v.id = r.vehicle_id
-      ${where}
-      ORDER BY r.ride_date ASC, r.departure_time ASC
-      LIMIT 10
-      `,
-      values
-    );
+    const { data, error } = await query;
 
-    return rows;
+    if (error) throw error;
+
+    return data || [];
   },
 };
 

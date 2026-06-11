@@ -45,7 +45,11 @@ const createRide = async (req, res) => {
       });
     }
 
-    const vehicle = await VehicleModel.findById(vehicle_id, req.user.id);
+    const vehicle = await VehicleModel.findById(
+      req.supabase,
+      vehicle_id,
+      req.user.id,
+    );
 
     if (!vehicle) {
       return res.status(404).json({
@@ -69,43 +73,36 @@ const createRide = async (req, res) => {
     }
 
     const routeIndex = Number(selected_route_index || 0);
-
     const selectedRoute = routes[routeIndex] || routes[0];
 
     const estimatedReachTime = calculateEstimatedReachTime(
       ride_date,
       departure_time,
-      selectedRoute.duration_seconds
+      selectedRoute.duration_seconds,
     );
 
-    const ride = await RideModel.create({
+    const ride = await RideModel.create(req.supabase, {
       driverId: req.user.id,
       vehicleId: vehicle_id,
-
       sourceAddress: source_address,
       sourcePlaceId: source_place_id || null,
       destinationAddress: destination_address,
       destinationPlaceId: destination_place_id || null,
-
       sourceLat: Number(source_lat),
       sourceLng: Number(source_lng),
       destinationLat: Number(destination_lat),
       destinationLng: Number(destination_lng),
-
       routePoints: selectedRoute.route_points,
       rideDate: ride_date,
       departureTime: departure_time,
-
       polyline: selectedRoute.polyline,
       distanceMeters: selectedRoute.distance_meters,
       durationSeconds: selectedRoute.duration_seconds,
       estimatedReachTime,
-
       petAllowed: pet_allowed || "no",
       smokingAllowed: smoking_allowed || "no",
       instantBooking: instant_booking || "yes",
       maxTwoInBack: max_two_in_back || "no",
-
       pricePerSeat: Number(price_per_seat),
       totalSeats: Number(total_seats),
       availableSeats: Number(available_seats || total_seats),
@@ -117,18 +114,18 @@ const createRide = async (req, res) => {
       data: { ride },
     });
   } catch (error) {
-    console.error("Create ride error:", error);
+    console.error("[ERROR] Create ride:", error?.message || error);
 
     return res.status(500).json({
       success: false,
-      message: error.message || "Something went wrong while publishing ride.",
+      message: error?.message || "Something went wrong while publishing ride.",
     });
   }
 };
 
 const getRides = async (req, res) => {
   try {
-    const rides = await RideModel.findAll({
+    const rides = await RideModel.findAll(req.supabase, {
       source: req.query.source,
       destination: req.query.destination,
       rideDate: req.query.ride_date,
@@ -141,7 +138,7 @@ const getRides = async (req, res) => {
       data: { rides },
     });
   } catch (error) {
-    console.error("Get rides error:", error);
+    console.error("[ERROR] Get rides:", error?.message || error);
 
     return res.status(500).json({
       success: false,
@@ -152,7 +149,7 @@ const getRides = async (req, res) => {
 
 const getRideById = async (req, res) => {
   try {
-    const ride = await RideModel.findById(req.params.id);
+    const ride = await RideModel.findById(req.supabase, req.params.id);
 
     if (!ride) {
       return res.status(404).json({
@@ -167,7 +164,7 @@ const getRideById = async (req, res) => {
       data: { ride },
     });
   } catch (error) {
-    console.error("Get ride by id error:", error);
+    console.error("[ERROR] Get ride by id:", error?.message || error);
 
     return res.status(500).json({
       success: false,
@@ -178,14 +175,16 @@ const getRideById = async (req, res) => {
 
 const getMyRides = async (req, res) => {
   try {
-    const rides = await RideModel.findByDriver(req.user.id);
+    const rides = await RideModel.findByDriver(req.supabase, req.user.id);
+
     return res.status(200).json({
       success: true,
       message: "My published rides fetched successfully.",
       data: { rides },
     });
   } catch (error) {
-    console.error("Get my published rides error:", error);
+    console.error("[ERROR] Get my published rides:", error?.message || error);
+
     return res.status(500).json({
       success: false,
       message: "Something went wrong while fetching published rides.",
@@ -196,9 +195,10 @@ const getMyRides = async (req, res) => {
 const cancelRide = async (req, res) => {
   try {
     const updated = await RideModel.updateStatus(
+      req.supabase,
       req.params.id,
       req.user.id,
-      "cancelled"
+      "cancelled",
     );
 
     if (!updated) {
@@ -213,7 +213,7 @@ const cancelRide = async (req, res) => {
       message: "Ride cancelled successfully.",
     });
   } catch (error) {
-    console.error("Cancel ride error:", error);
+    console.error("[ERROR] Cancel ride:", error?.message || error);
 
     return res.status(500).json({
       success: false,
@@ -222,15 +222,10 @@ const cancelRide = async (req, res) => {
   }
 };
 
-
 const getRouteOptions = async (req, res) => {
   try {
-    const {
-      source_lat,
-      source_lng,
-      destination_lat,
-      destination_lng,
-    } = req.body;
+    const { source_lat, source_lng, destination_lat, destination_lng } =
+      req.body;
 
     if (!source_lat || !source_lng || !destination_lat || !destination_lng) {
       return res.status(400).json({
@@ -240,10 +235,10 @@ const getRouteOptions = async (req, res) => {
     }
 
     const routes = await getDrivingRoutes({
-      sourceLat: source_lat,
-      sourceLng: source_lng,
-      destinationLat: destination_lat,
-      destinationLng: destination_lng,
+      sourceLat: Number(source_lat),
+      sourceLng: Number(source_lng),
+      destinationLat: Number(destination_lat),
+      destinationLng: Number(destination_lng),
     });
 
     return res.status(200).json({
@@ -252,7 +247,7 @@ const getRouteOptions = async (req, res) => {
       data: { routes },
     });
   } catch (error) {
-    console.error("Route options error:", error);
+    console.error("[ERROR] Route options:", error?.message || error);
 
     return res.status(500).json({
       success: false,
@@ -261,13 +256,16 @@ const getRouteOptions = async (req, res) => {
   }
 };
 
-
 const getDriverRideDetails = async (req, res) => {
   try {
     const rideId = req.params.id;
     const driverId = req.user.id;
 
-    const ride = await RideModel.findDriverRideById(rideId, driverId);
+    const ride = await RideModel.findDriverRideById(
+      req.supabase,
+      rideId,
+      driverId,
+    );
 
     if (!ride) {
       return res.status(404).json({
@@ -277,20 +275,18 @@ const getDriverRideDetails = async (req, res) => {
     }
 
     const bookings = await RideModel.findRideBookingsForDriver(
+      req.supabase,
       rideId,
-      driverId
+      driverId,
     );
 
     return res.status(200).json({
       success: true,
       message: "Driver ride details fetched successfully.",
-      data: {
-        ride,
-        bookings,
-      },
+      data: { ride, bookings },
     });
   } catch (error) {
-    console.error("Driver ride details error:", error);
+    console.error("[ERROR] Driver ride details:", error?.message || error);
 
     return res.status(500).json({
       success: false,
@@ -314,9 +310,10 @@ const updateRide = async (req, res) => {
     };
 
     const updated = await RideModel.updateDriverRide(
+      req.supabase,
       rideId,
       driverId,
-      allowedPayload
+      allowedPayload,
     );
 
     if (!updated) {
@@ -326,7 +323,11 @@ const updateRide = async (req, res) => {
       });
     }
 
-    const ride = await RideModel.findDriverRideById(rideId, driverId);
+    const ride = await RideModel.findDriverRideById(
+      req.supabase,
+      rideId,
+      driverId,
+    );
 
     return res.status(200).json({
       success: true,
@@ -334,7 +335,7 @@ const updateRide = async (req, res) => {
       data: { ride },
     });
   } catch (error) {
-    console.error("Update ride error:", error);
+    console.error("[ERROR] Update ride:", error?.message || error);
 
     return res.status(500).json({
       success: false,
@@ -345,25 +346,23 @@ const updateRide = async (req, res) => {
 
 const startRide = async (req, res) => {
   try {
-    const rideId = req.params.id;
-    const driverId = req.user.id;
-
-    const result = await RideModel.startRide(rideId, driverId);
+    const result = await RideModel.startRide(
+      req.supabase,
+      req.params.id,
+      req.user.id,
+    );
 
     if (!result.success) {
       const messages = {
-        ride_not_found: "Ride not found.",
-        not_ride_owner: "You are not allowed to start this ride.",
+        ride_not_found_or_not_owner: "Ride not found or not owned by you.",
         invalid_status_cancelled: "Cancelled ride cannot be started.",
         invalid_status_completed: "Completed ride cannot be started.",
-        invalid_status_in_progress: "Ride has already started.",
+        invalid_status_ongoing: "Ride has already started.",
       };
 
       return res.status(400).json({
         success: false,
-        message:
-          messages[result.reason] ||
-          "Ride cannot be started.",
+        message: messages[result.reason] || "Ride cannot be started.",
         reason: result.reason,
       });
     }
@@ -373,7 +372,7 @@ const startRide = async (req, res) => {
       message: "Ride started successfully.",
     });
   } catch (error) {
-    console.error("Start ride error:", error);
+    console.error("[ERROR] Start ride:", error?.message || error);
 
     return res.status(500).json({
       success: false,
@@ -384,16 +383,17 @@ const startRide = async (req, res) => {
 
 const completeRide = async (req, res) => {
   try {
-    const rideId = req.params.id;
-    const driverId = req.user.id;
-
-    const result = await RideModel.completeRide(rideId, driverId);
+    const result = await RideModel.completeRide(
+      req.supabase,
+      req.params.id,
+      req.user.id,
+    );
 
     if (!result.success) {
       const messages = {
-        ride_not_found: "Ride not found.",
-        not_ride_owner: "You are not allowed to complete this ride.",
-        invalid_status_scheduled: "Ride must be started before it can be completed.",
+        ride_not_found_or_not_owner: "Ride not found or not owned by you.",
+        invalid_status_scheduled:
+          "Ride must be started before it can be completed.",
         invalid_status_cancelled: "Cancelled ride cannot be completed.",
         invalid_status_completed: "Ride is already completed.",
       };
@@ -410,7 +410,7 @@ const completeRide = async (req, res) => {
       message: "Ride completed successfully.",
     });
   } catch (error) {
-    console.error("Complete ride error:", error);
+    console.error("[ERROR] Complete ride:", error?.message || error);
 
     return res.status(500).json({
       success: false,
@@ -421,14 +421,10 @@ const completeRide = async (req, res) => {
 
 function calculateEstimatedReachTime(rideDate, departureTime, durationSeconds) {
   if (!rideDate || !departureTime || !durationSeconds) return null;
-
   const start = new Date(`${rideDate}T${departureTime}`);
-
   if (Number.isNaN(start.getTime())) return null;
-
   start.setSeconds(start.getSeconds() + Number(durationSeconds));
-
-  return start.toISOString().slice(0, 19).replace("T", " ");
+  return start.toISOString();
 }
 
 module.exports = {

@@ -1,187 +1,167 @@
-const db = require("../config/db");
-
 const BookingModel = {
-  async createBooking({
-    bookingCode,
-    rideId,
-    passengerId,
-    seats,
-    rideSource,
-    rideDestination,
-    rideSourceLat,
-    rideSourceLng,
-    rideDestinationLat,
-    rideDestinationLng,
-    rideDate,
-    rideTime,
-    pricePerSeat,
-    totalPrice,
-  }) {
-    const [result] = await db.execute(
-      `
-      INSERT INTO ride_bookings
-      (
-        booking_code,
-        ride_id,
-        passenger_id,
-        seats,
-        ride_source,
-        ride_destination,
-        ride_source_lat,
-        ride_source_lng,
-        ride_destination_lat,
-        ride_destination_lng,
-        ride_date,
-        ride_time,
-        price_per_seat,
-        total_price,
-        status,
-        payment_status,
-        payment_type,
-        created_at,
-        updated_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'unpaid', 'cash', NOW(), NOW())
-      `,
-      [
-        bookingCode,
-        rideId,
-        passengerId,
-        seats,
-        rideSource,
-        rideDestination,
-        rideSourceLat,
-        rideSourceLng,
-        rideDestinationLat,
-        rideDestinationLng,
-        rideDate,
-        rideTime,
-        pricePerSeat,
-        totalPrice,
-      ],
-    );
+  async createBooking(supabase, payload) {
+    const { data, error } = await supabase
+      .from("ride_bookings")
+      .insert({
+        booking_code: payload.bookingCode,
+        ride_id: payload.rideId,
+        passenger_id: payload.passengerId,
+        seats: payload.seats,
+        ride_source: payload.rideSource,
+        ride_destination: payload.rideDestination,
+        ride_source_lat: payload.rideSourceLat || null,
+        ride_source_lng: payload.rideSourceLng || null,
+        ride_destination_lat: payload.rideDestinationLat || null,
+        ride_destination_lng: payload.rideDestinationLng || null,
+        ride_date: payload.rideDate || null,
+        ride_time: payload.rideTime || null,
+        price_per_seat: payload.pricePerSeat,
+        total_price: payload.totalPrice,
+        status: "pending",
+        payment_status: "unpaid",
+        payment_type: "cash",
+      })
+      .select("*")
+      .single();
 
-    return this.findById(result.insertId, passengerId);
+    if (error) throw error;
+
+    return data;
   },
 
-  async findActiveBookingByPassengerAndRide(passengerId, rideId) {
-    const [rows] = await db.execute(
-      `
-    SELECT id, status
-    FROM ride_bookings
-    WHERE passenger_id = ?
-      AND ride_id = ?
-      AND status NOT IN ('cancelled', 'rejected')
-    LIMIT 1
-    `,
-      [passengerId, rideId],
-    );
+  async findActiveBookingByPassengerAndRide(supabase, passengerId, rideId) {
+    const { data, error } = await supabase
+      .from("ride_bookings")
+      .select("id, status")
+      .eq("passenger_id", passengerId)
+      .eq("ride_id", rideId)
+      .not("status", "in", '("cancelled","rejected")')
+      .maybeSingle();
 
-    return rows[0] || null;
+    if (error) throw error;
+
+    return data || null;
   },
 
-  async findById(id, userId) {
-    const [rows] = await db.execute(
-      `
-      SELECT 
-        b.*,
-        r.driver_id,
-        u.name AS driver_name,
-        u.phone AS driver_phone,
-        v.brand,
-        v.model,
-        v.registration_number,
-        v.color
-      FROM ride_bookings b
-      LEFT JOIN rides r ON r.id = b.ride_id
-      LEFT JOIN users u ON u.id = r.driver_id
-      LEFT JOIN vehicles v ON v.id = r.vehicle_id
-      WHERE b.id = ?
-        AND (b.passenger_id = ? OR r.driver_id = ?)
-      LIMIT 1
-      `,
-      [id, userId, userId],
-    );
+  async findById(supabase, id, userId) {
+    const { data, error } = await supabase
+      .from("ride_bookings")
+      .select(`
+        *,
+        rides!inner (
+          id,
+          driver_id,
+          vehicle_id,
+          source_address,
+          destination_address,
+          ride_date,
+          departure_time,
+          vehicles (
+            brand,
+            model,
+            registration_number,
+            color
+          )
+        )
+      `)
+      .eq("id", id)
+      .maybeSingle();
 
-    return rows[0] || null;
+    if (error) throw error;
+    if (!data) return null;
+
+    const isPassenger = String(data.passenger_id) === String(userId);
+    const isDriver = String(data.rides.driver_id) === String(userId);
+
+    if (!isPassenger && !isDriver) return null;
+
+    return data;
   },
 
-  async findByPassenger(passengerId) {
-    const [rows] = await db.execute(
-      `
-      SELECT 
-        b.*,
-        r.driver_id,
-        u.name AS driver_name,
-        v.brand,
-        v.model,
-        v.registration_number,
-        v.color
-      FROM ride_bookings b
-      LEFT JOIN rides r ON r.id = b.ride_id
-      LEFT JOIN users u ON u.id = r.driver_id
-      LEFT JOIN vehicles v ON v.id = r.vehicle_id
-      WHERE b.passenger_id = ?
-      ORDER BY b.created_at DESC
-      `,
-      [passengerId],
-    );
+  async findByPassenger(supabase, passengerId) {
+    const { data, error } = await supabase
+      .from("ride_bookings")
+      .select(`
+        *,
+        rides (
+          id,
+          driver_id,
+          vehicle_id,
+          vehicles (
+            brand,
+            model,
+            registration_number,
+            color
+          )
+        )
+      `)
+      .eq("passenger_id", passengerId)
+      .order("created_at", { ascending: false });
 
-    return rows;
+    if (error) throw error;
+
+    return data || [];
   },
 
-  async findByDriver({ driverId, rideId }) {
-    const params = [driverId];
-
-    let rideFilter = "";
+  async findByDriver(supabase, { driverId, rideId }) {
+    let query = supabase
+      .from("ride_bookings")
+      .select(`
+        *,
+        rides!inner (
+          id,
+          driver_id,
+          source_address,
+          destination_address,
+          ride_date,
+          departure_time
+        )
+      `)
+      .eq("rides.driver_id", driverId)
+      .order("created_at", { ascending: false });
 
     if (rideId) {
-      rideFilter = "AND r.id = ?";
-      params.push(rideId);
+      query = query.eq("ride_id", rideId);
     }
 
-    const [rows] = await db.execute(
-      `
-    SELECT 
-      b.*,
-      p.name AS passenger_name,
-      p.phone AS passenger_phone,
-      r.driver_id,
-      r.source_address,
-      r.destination_address,
-      r.ride_date,
-      r.departure_time
-    FROM ride_bookings b
-    LEFT JOIN rides r ON r.id = b.ride_id
-    LEFT JOIN users p ON p.id = b.passenger_id
-    WHERE r.driver_id = ?
-      ${rideFilter}
-    ORDER BY b.created_at DESC
-    `,
-      params,
-    );
+    const { data, error } = await query;
 
-    return rows;
+    if (error) throw error;
+
+    return data || [];
   },
 
-  async updateStatus(id, userId, status) {
-    const [result] = await db.execute(
-      `
-      UPDATE ride_bookings b
-      LEFT JOIN rides r ON r.id = b.ride_id
-      SET 
-        b.status = ?,
-        b.accepted_at = CASE WHEN ? = 'accepted' THEN NOW() ELSE b.accepted_at END,
-        b.confirmed_at = CASE WHEN ? = 'accepted' THEN NOW() ELSE b.confirmed_at END,
-        b.cancelled_at = CASE WHEN ? = 'cancelled' THEN NOW() ELSE b.cancelled_at END,
-        b.updated_at = NOW()
-      WHERE b.id = ?
-        AND (b.passenger_id = ? OR r.driver_id = ?)
-      `,
-      [status, status, status, status, id, userId, userId],
-    );
+  async updateStatus(supabase, id, userId, status) {
+    const booking = await this.findById(supabase, id, userId);
 
-    return result.affectedRows > 0;
+    if (!booking) return false;
+
+    const payload = {
+      status,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (status === "accepted") {
+      payload.accepted_at = new Date().toISOString();
+      payload.confirmed_at = new Date().toISOString();
+    }
+
+    if (status === "cancelled") {
+      payload.cancelled_at = new Date().toISOString();
+    }
+
+    if (status === "completed") {
+      payload.completed_at = new Date().toISOString();
+    }
+
+    const { error } = await supabase
+      .from("ride_bookings")
+      .update(payload)
+      .eq("id", id);
+
+    if (error) throw error;
+
+    return true;
   },
 };
 

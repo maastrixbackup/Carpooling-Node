@@ -1,61 +1,72 @@
-const db = require("../../config/db");
+const { supabaseAdmin } = require("../../config/supabase");
 
 const PushTokenModel = {
   async upsert({ userId, expoPushToken, deviceType, deviceName }) {
-    const [result] = await db.execute(
-      `
-      INSERT INTO user_push_tokens
-      (
-        user_id,
-        expo_push_token,
-        device_type,
-        device_name,
-        is_active,
-        last_used_at
+    const { data, error } = await supabaseAdmin
+      .from("user_push_tokens")
+      .upsert(
+        {
+          user_id: userId,
+          expo_push_token: expoPushToken,
+          device_type: deviceType || "unknown",
+          device_name: deviceName || null,
+          is_active: true,
+          last_used_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+        {
+          onConflict: "user_id,expo_push_token",
+        },
       )
-      VALUES (?, ?, ?, ?, 1, NOW())
-      ON DUPLICATE KEY UPDATE
-        device_type = VALUES(device_type),
-        device_name = VALUES(device_name),
-        is_active = 1,
-        last_used_at = NOW(),
-        updated_at = NOW()
-      `,
-      [
-        userId,
-        expoPushToken,
-        deviceType || "unknown",
-        deviceName || null,
-      ]
-    );
+      .select("*")
+      .single();
 
-    return result;
+    if (error) throw error;
+
+    return data;
   },
 
   async incrementReceived(userId) {
-    await db.execute(
-      `
-      UPDATE user_push_tokens
-      SET notifications_received = notifications_received + 1,
-          updated_at = NOW()
-      WHERE user_id = ?
-        AND is_active = 1
-      `,
-      [userId]
-    );
+    const { data: tokens, error } = await supabaseAdmin
+      .from("user_push_tokens")
+      .select("id, notifications_received")
+      .eq("user_id", userId)
+      .eq("is_active", true);
+
+    if (error) throw error;
+
+    if (!tokens?.length) return;
+
+    const updates = tokens.map((token) => ({
+      id: token.id,
+      notifications_received: Number(token.notifications_received || 0) + 1,
+      updated_at: new Date().toISOString(),
+    }));
+
+    const { error: updateError } = await supabaseAdmin
+      .from("user_push_tokens")
+      .upsert(updates, {
+        onConflict: "id",
+      });
+
+    if (updateError) throw updateError;
   },
 
   async deactivateToken(userId, expoPushToken) {
-    await db.execute(
-      `
-      UPDATE user_push_tokens
-      SET is_active = 0,
-          updated_at = NOW()
-      WHERE user_id = ?
-        AND expo_push_token = ?
-      `,
-      [userId, expoPushToken]
-    );
+    const { data, error } = await supabaseAdmin
+      .from("user_push_tokens")
+      .update({
+        is_active: false,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", userId)
+      .eq("expo_push_token", expoPushToken)
+      .select("id")
+      .maybeSingle();
+
+    if (error) throw error;
+
+    return !!data;
   },
 };
 

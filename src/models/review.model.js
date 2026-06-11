@@ -1,100 +1,131 @@
-const db = require("../config/db");
-
-class ReviewModel {
-  async create({ rideId, bookingId, reviewerId, driverId, rating, review }) {
-    const [result] = await db.execute(
-      `
-      INSERT INTO ride_reviews
-      (
-        ride_id,
-        booking_id,
-        reviewer_id,
-        driver_id,
+const ReviewModel = {
+  async create(
+    supabase,
+    {
+      rideId,
+      bookingId,
+      reviewerId,
+      driverId,
+      rating,
+      review,
+    },
+  ) {
+    const { data, error } = await supabase
+      .from("ride_reviews")
+      .insert({
+        ride_id: rideId,
+        booking_id: bookingId,
+        reviewer_id: reviewerId,
+        driver_id: driverId,
         rating,
-        review
-      )
-      VALUES (?, ?, ?, ?, ?, ?)
-      `,
-      [rideId, bookingId, reviewerId, driverId, rating, review || null],
-    );
+        review: review || null,
+      })
+      .select("*")
+      .single();
 
-    return this.findById(result.insertId);
-  }
+    if (error) throw error;
 
-  async findById(id) {
-    const [rows] = await db.execute(
-      `
-      SELECT *
-      FROM ride_reviews
-      WHERE id = ?
-      LIMIT 1
-      `,
-      [id],
-    );
+    return data;
+  },
 
-    return rows[0] || null;
-  }
+  async findById(supabase, id) {
+    const { data, error } = await supabase
+      .from("ride_reviews")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
 
-  async findByBooking(bookingId) {
-    const [rows] = await db.execute(
-      `
-      SELECT *
-      FROM ride_reviews
-      WHERE booking_id = ?
-      LIMIT 1
-      `,
-      [bookingId],
-    );
+    if (error) throw error;
 
-    return rows[0] || null;
-  }
+    return data || null;
+  },
 
-  async findByDriver(driverId) {
-    const [rows] = await db.execute(
-      `
-      SELECT
-        r.*,
-        u.name AS reviewer_name
-      FROM ride_reviews r
-      LEFT JOIN users u
-        ON u.id = r.reviewer_id
-      WHERE r.driver_id = ?
-      ORDER BY r.created_at DESC
-      `,
-      [driverId],
-    );
+  async findByBooking(supabase, bookingId) {
+    const { data, error } = await supabase
+      .from("ride_reviews")
+      .select("*")
+      .eq("booking_id", bookingId)
+      .maybeSingle();
 
-    return rows;
-  }
+    if (error) throw error;
 
-  async getDriverStats(driverId) {
-    const [rows] = await db.execute(
-      `
-      SELECT
-        COUNT(*) AS total_reviews,
-        ROUND(AVG(rating), 1) AS average_rating
-      FROM ride_reviews
-      WHERE driver_id = ?
-      `,
-      [driverId],
-    );
+    return data || null;
+  },
 
-    return rows[0];
-  }
+  async findByDriver(supabase, driverId) {
+    const { data, error } = await supabase
+      .from("ride_reviews")
+      .select("*")
+      .eq("driver_id", driverId)
+      .order("created_at", { ascending: false });
 
-  async hasReviewed(bookingId) {
-    const [rows] = await db.execute(
-      `
-    SELECT id
-    FROM ride_reviews
-    WHERE booking_id = ?
-    LIMIT 1
-    `,
-      [bookingId],
-    );
+    if (error) throw error;
 
-    return rows.length > 0;
-  }
-}
+    if (!data?.length) return [];
 
-module.exports = new ReviewModel();
+    const reviewerIds = [...new Set(data.map((item) => item.reviewer_id))];
+
+    const { data: reviewers, error: reviewerError } = await supabase
+      .from("user_details")
+      .select("id, full_name, profile_picture")
+      .in("id", reviewerIds);
+
+    if (reviewerError) throw reviewerError;
+
+    const reviewerMap = (reviewers || []).reduce((map, user) => {
+      map[String(user.id)] = user;
+      return map;
+    }, {});
+
+    return data.map((review) => {
+      const reviewer = reviewerMap[String(review.reviewer_id)];
+
+      return {
+        ...review,
+        reviewer_name: reviewer?.full_name || "Passenger",
+        reviewer_profile_picture: reviewer?.profile_picture || null,
+      };
+    });
+  },
+
+  async getDriverStats(supabase, driverId) {
+    const { data, error } = await supabase
+      .from("ride_reviews")
+      .select("rating")
+      .eq("driver_id", driverId);
+
+    if (error) throw error;
+
+    const totalReviews = data?.length || 0;
+
+    if (totalReviews === 0) {
+      return {
+        total_reviews: 0,
+        average_rating: 0,
+      };
+    }
+
+    const totalRating = data.reduce((sum, item) => {
+      return sum + Number(item.rating || 0);
+    }, 0);
+
+    return {
+      total_reviews: totalReviews,
+      average_rating: Number((totalRating / totalReviews).toFixed(1)),
+    };
+  },
+
+  async hasReviewed(supabase, bookingId) {
+    const { data, error } = await supabase
+      .from("ride_reviews")
+      .select("id")
+      .eq("booking_id", bookingId)
+      .maybeSingle();
+
+    if (error) throw error;
+
+    return !!data;
+  },
+};
+
+module.exports = ReviewModel;

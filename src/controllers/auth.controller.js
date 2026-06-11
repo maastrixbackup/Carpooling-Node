@@ -1,5 +1,6 @@
 const AuthModel = require("../models/auth.model");
 const UserModel = require("../models/user.model");
+const { logError } = require("../utils/logger");
 
 const signup = async (req, res) => {
   try {
@@ -53,7 +54,7 @@ const signup = async (req, res) => {
     });
   } catch (error) {
     console.error("Signup error:", error);
-
+    logError("Signup", error);
     const message =
       error?.message === "User already registered"
         ? "User with this email already exists."
@@ -104,6 +105,7 @@ const login = async (req, res) => {
     });
   } catch (error) {
     console.error("Login error:", error);
+    logError("Login", error)
     return res.status(401).json({
       success: false,
       message: error?.message || "Invalid email or password.",
@@ -133,10 +135,20 @@ const me = async (req, res) => {
 };
 
 const logout = async (req, res) => {
-  return res.status(200).json({
-    success: true,
-    message: "Logout successful.",
-  });
+  try {
+    await AuthModel.logout(req.accessToken);
+    return res.status(200).json({
+      success: true,
+      message: "Logout successful.",
+    });
+  } catch (error) {
+    logError("Logout Error", error)
+    console.error("[ERROR] Logout:", error?.message || error);
+    return res.status(500).json({
+      success: false,
+      message: error?.message || "Unable to logout.",
+    });
+  }
 };
 
 const refreshSession = async (req, res) => {

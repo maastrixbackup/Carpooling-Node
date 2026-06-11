@@ -30,8 +30,9 @@ const AuthModel = {
     return data;
   },
 
-  async logout(accessToken) {
-    const { error } = await supabaseAdmin.auth.getUser(accessToken);
+ async logout(accessToken) {
+    const supabase = createUserSupabaseClient(accessToken);
+    const { error } = await supabase.auth.signOut();
     if (error) throw error;
     return true;
   },

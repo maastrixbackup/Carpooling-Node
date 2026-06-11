@@ -1,473 +1,354 @@
-const db = require("../config/db");
-
 const RideModel = {
-  async create({
-    driverId,
-    vehicleId,
-    sourceAddress,
-    sourcePlaceId,
-    destinationAddress,
-    destinationPlaceId,
-    sourceLat,
-    sourceLng,
-    destinationLat,
-    destinationLng,
-    routePoints,
-    rideDate,
-    departureTime,
-    polyline,
-    distanceMeters,
-    durationSeconds,
-    estimatedReachTime,
-    petAllowed,
-    smokingAllowed,
-    instantBooking,
-    maxTwoInBack,
-    pricePerSeat,
-    totalSeats,
-    availableSeats,
-  }) {
-    const [result] = await db.execute(
-      `
-      INSERT INTO rides
-      (
-        driver_id,
-        vehicle_id,
-        source_address,
-        source_place_id,
-        destination_address,
-        destination_place_id,
-        source_lat,
-        source_lng,
-        destination_lat,
-        destination_lng,
-        route_points,
-        ride_date,
-        departure_time,
-        polyline,
-        distance_meters,
-        duration_seconds,
-        estimated_reach_time,
-        pet_allowed,
-        smoking_allowed,
-        instant_booking,
-        max_two_in_back,
-        price_per_seat,
-        total_seats,
-        available_seats,
-        status,
-        created_at,
-        updated_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', NOW(), NOW())
-      `,
-      [
-        driverId,
-        vehicleId,
-        sourceAddress,
-        sourcePlaceId || null,
-        destinationAddress,
-        destinationPlaceId || null,
-        sourceLat,
-        sourceLng,
-        destinationLat,
-        destinationLng,
-        routePoints ? JSON.stringify(routePoints) : null,
-        rideDate,
-        departureTime,
-        polyline || null,
-        distanceMeters || null,
-        durationSeconds || null,
-        estimatedReachTime || null,
-        petAllowed || "no",
-        smokingAllowed || "no",
-        instantBooking || "yes",
-        maxTwoInBack || "no",
-        pricePerSeat,
-        totalSeats,
-        availableSeats || totalSeats,
-      ],
-    );
+  async create(supabase, payload) {
+    const { data, error } = await supabase
+      .from("rides")
+      .insert({
+        driver_id: payload.driverId,
+        vehicle_id: payload.vehicleId,
+        source_address: payload.sourceAddress,
+        source_place_id: payload.sourcePlaceId || null,
+        destination_address: payload.destinationAddress,
+        destination_place_id: payload.destinationPlaceId || null,
+        source_lat: payload.sourceLat,
+        source_lng: payload.sourceLng,
+        destination_lat: payload.destinationLat,
+        destination_lng: payload.destinationLng,
+        route_points: payload.routePoints || null,
+        ride_date: payload.rideDate,
+        departure_time: payload.departureTime,
+        polyline: payload.polyline || null,
+        distance_meters: payload.distanceMeters || null,
+        duration_seconds: payload.durationSeconds || null,
+        estimated_reach_time: payload.estimatedReachTime || null,
+        pet_allowed: payload.petAllowed || "no",
+        smoking_allowed: payload.smokingAllowed || "no",
+        instant_booking: payload.instantBooking || "yes",
+        max_two_in_back: payload.maxTwoInBack || "no",
+        price_per_seat: payload.pricePerSeat,
+        total_seats: payload.totalSeats,
+        available_seats: payload.availableSeats || payload.totalSeats,
+        status: "scheduled",
+      })
+      .select("*")
+      .single();
 
-    return this.findById(result.insertId);
+    if (error) throw error;
+
+    return data;
   },
 
-  async findById(id) {
-    const [rows] = await db.execute(
-      `
-      SELECT 
-        r.*,
-        u.name AS driver_name,
-        u.phone AS driver_phone,
-        u.rating AS driver_rating,
-        u.total_rides AS driver_total_rides,
-        v.brand,
-        v.model,
-        v.registration_number,
-        v.color,
-        v.rating AS vehicle_rating
-      FROM rides r
-      LEFT JOIN users u ON u.id = r.driver_id
-      LEFT JOIN vehicles v ON v.id = r.vehicle_id
-      WHERE r.id = ?
-      LIMIT 1
-      `,
-      [id],
-    );
+  async findById(supabase, id) {
+    const { data, error } = await supabase
+      .from("rides")
+      .select(`
+        *,
+        vehicles (
+          brand,
+          model,
+          registration_number,
+          color,
+          rating
+        )
+      `)
+      .eq("id", id)
+      .maybeSingle();
 
-    return rows[0] || null;
+    if (error) throw error;
+
+    return data || null;
   },
 
-  async findAll(filters = {}) {
-    const values = [];
-    let where = `
-      WHERE r.status = 'scheduled'
-        AND r.available_seats > 0
-    `;
+  async findAll(supabase, filters = {}) {
+    let query = supabase
+      .from("rides")
+      .select(`
+        *,
+        vehicles (
+          brand,
+          model,
+          registration_number,
+          color,
+          rating
+        )
+      `)
+      .eq("status", "scheduled")
+      .gt("available_seats", 0)
+      .order("ride_date", { ascending: true })
+      .order("departure_time", { ascending: true });
 
     if (filters.source) {
-      where += ` AND r.source_address LIKE ?`;
-      values.push(`%${filters.source}%`);
+      query = query.ilike("source_address", `%${filters.source}%`);
     }
 
     if (filters.destination) {
-      where += ` AND r.destination_address LIKE ?`;
-      values.push(`%${filters.destination}%`);
+      query = query.ilike("destination_address", `%${filters.destination}%`);
     }
 
     if (filters.rideDate) {
-      where += ` AND r.ride_date = ?`;
-      values.push(filters.rideDate);
+      query = query.eq("ride_date", filters.rideDate);
     }
 
     if (filters.minSeats) {
-      where += ` AND r.available_seats >= ?`;
-      values.push(Number(filters.minSeats));
+      query = query.gte("available_seats", Number(filters.minSeats));
     }
 
-    const [rows] = await db.execute(
-      `
-      SELECT 
-        r.*,
-        u.name AS driver_name,
-        u.rating AS driver_rating,
-        u.total_rides AS driver_total_rides,
-        v.brand,
-        v.model,
-        v.registration_number,
-        v.color,
-        v.rating AS vehicle_rating
-      FROM rides r
-      LEFT JOIN users u ON u.id = r.driver_id
-      LEFT JOIN vehicles v ON v.id = r.vehicle_id
-      ${where}
-      ORDER BY r.ride_date ASC, r.departure_time ASC
-      `,
-      values,
-    );
+    const { data, error } = await query;
 
-    return rows;
+    if (error) throw error;
+
+    return data || [];
   },
 
-  async findByDriver(driverId) {
-    const [rows] = await db.execute(
-      `
-      SELECT 
-        r.*,
-        v.brand,
-        v.model,
-        v.registration_number,
-        v.color
-      FROM rides r
-      LEFT JOIN vehicles v ON v.id = r.vehicle_id
-      WHERE r.driver_id = ?
-      ORDER BY r.ride_date DESC, r.departure_time DESC
-      `,
-      [driverId],
-    );
+  async findByDriver(supabase, driverId) {
+    const { data, error } = await supabase
+      .from("rides")
+      .select(`
+        *,
+        vehicles (
+          brand,
+          model,
+          registration_number,
+          color
+        )
+      `)
+      .eq("driver_id", driverId)
+      .order("ride_date", { ascending: false })
+      .order("departure_time", { ascending: false });
 
-    return rows;
+    if (error) throw error;
+
+    return data || [];
   },
 
-  async updateStatus(id, driverId, status) {
-    const [result] = await db.execute(
-      `
-      UPDATE rides
-      SET status = ?, updated_at = NOW()
-      WHERE id = ?
-        AND driver_id = ?
-      `,
-      [status, id, driverId],
-    );
+  async updateStatus(supabase, id, driverId, status) {
+    const { data, error } = await supabase
+      .from("rides")
+      .update({
+        status,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id)
+      .eq("driver_id", driverId)
+      .select("id")
+      .maybeSingle();
 
-    return result.affectedRows > 0;
+    if (error) throw error;
+
+    return !!data;
   },
 
-  async findForBooking(id) {
-    const [rows] = await db.execute(
-      `
-    SELECT *
-    FROM rides
-    WHERE id = ?
-      AND status = 'scheduled'
-    LIMIT 1
-    `,
-      [id],
-    );
+  async findForBooking(supabase, id) {
+    const { data, error } = await supabase
+      .from("rides")
+      .select("*")
+      .eq("id", id)
+      .eq("status", "scheduled")
+      .maybeSingle();
 
-    return rows[0] || null;
+    if (error) throw error;
+
+    return data || null;
   },
 
-  async decreaseAvailableSeats(id, seats) {
-    const [result] = await db.execute(
-      `
-    UPDATE rides
-    SET 
-      available_seats = available_seats - ?,
-      updated_at = NOW()
-    WHERE id = ?
-      AND available_seats >= ?
-      AND status = 'scheduled'
-    `,
-      [seats, id, seats],
-    );
+  async decreaseAvailableSeats(supabase, id, seats) {
+    const ride = await this.findForBooking(supabase, id);
 
-    return result.affectedRows > 0;
-  },
+    if (!ride) return false;
 
-  async increaseAvailableSeats(id, seats) {
-    const [result] = await db.execute(
-      `
-    UPDATE rides
-    SET 
-      available_seats = available_seats + ?,
-      updated_at = NOW()
-    WHERE id = ?
-    `,
-      [seats, id],
-    );
-
-    return result.affectedRows > 0;
-  },
-
-  async findDriverRideById(rideId, driverId) {
-    const [rows] = await db.execute(
-      `
-    SELECT 
-      r.*,
-      v.brand,
-      v.model,
-      v.registration_number,
-      v.color
-    FROM rides r
-    LEFT JOIN vehicles v ON v.id = r.vehicle_id
-    WHERE r.id = ?
-      AND r.driver_id = ?
-    LIMIT 1
-    `,
-      [rideId, driverId],
-    );
-
-    return rows[0] || null;
-  },
-
-  async findRideBookingsForDriver(rideId, driverId) {
-    const [rows] = await db.execute(
-      `
-    SELECT 
-      b.*,
-      p.name AS passenger_name,
-      p.phone AS passenger_phone
-    FROM ride_bookings b
-    LEFT JOIN rides r ON r.id = b.ride_id
-    LEFT JOIN users p ON p.id = b.passenger_id
-    WHERE b.ride_id = ?
-      AND r.driver_id = ?
-    ORDER BY b.created_at DESC
-    `,
-      [rideId, driverId],
-    );
-
-    return rows;
-  },
-
-  async updateDriverRide(rideId, driverId, payload) {
-    const [result] = await db.execute(
-      `
-    UPDATE rides
-    SET 
-      price_per_seat = ?,
-      available_seats = ?,
-      pet_allowed = ?,
-      smoking_allowed = ?,
-      instant_booking = ?,
-      max_two_in_back = ?,
-      updated_at = NOW()
-    WHERE id = ?
-      AND driver_id = ?
-      AND status != 'cancelled'
-    `,
-      [
-        payload.price_per_seat,
-        payload.available_seats,
-        payload.pet_allowed,
-        payload.smoking_allowed,
-        payload.instant_booking,
-        payload.max_two_in_back,
-        rideId,
-        driverId,
-      ],
-    );
-
-    return result.affectedRows > 0;
-  },
-
-  async startRide(rideId, driverId) {
-    const connection = await db.getConnection();
-
-    try {
-      await connection.beginTransaction();
-
-      const [rideRows] = await connection.execute(
-        `
-      SELECT id, driver_id, status
-      FROM rides
-      WHERE id = ?
-      LIMIT 1
-      `,
-        [rideId],
-      );
-
-      const ride = rideRows[0];
-
-      if (!ride) {
-        await connection.rollback();
-        return {
-          success: false,
-          reason: "ride_not_found",
-        };
-      }
-
-      if (Number(ride.driver_id) !== Number(driverId)) {
-        await connection.rollback();
-        return {
-          success: false,
-          reason: "not_ride_owner",
-        };
-      }
-
-      if (ride.status !== "scheduled") {
-        await connection.rollback();
-        return {
-          success: false,
-          reason: `invalid_status_${ride.status}`,
-        };
-      }
-
-      await connection.execute(
-        `
-      UPDATE rides
-      SET status = 'ongoing',
-          started_at = NOW(),
-          updated_at = NOW()
-      WHERE id = ?
-        AND driver_id = ?
-        AND status = 'scheduled'
-      `,
-        [rideId, driverId],
-      );
-
-      await connection.execute(
-        `
-      UPDATE ride_bookings
-      SET status = 'ongoing',
-          updated_at = NOW()
-      WHERE ride_id = ?
-        AND status = 'accepted'
-      `,
-        [rideId],
-      );
-
-      await connection.commit();
-
-      return {
-        success: true,
-      };
-    } catch (error) {
-      await connection.rollback();
-      throw error;
-    } finally {
-      connection.release();
+    if (Number(ride.available_seats) < Number(seats)) {
+      return false;
     }
+
+    const { data, error } = await supabase
+      .from("rides")
+      .update({
+        available_seats: Number(ride.available_seats) - Number(seats),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id)
+      .eq("status", "scheduled")
+      .gte("available_seats", Number(seats))
+      .select("id")
+      .maybeSingle();
+
+    if (error) throw error;
+
+    return !!data;
   },
 
-  async completeRide(rideId, driverId) {
-    const connection = await db.getConnection();
-    try {
-      await connection.beginTransaction();
+  async increaseAvailableSeats(supabase, id, seats) {
+    const ride = await this.findById(supabase, id);
 
-      const [rideRows] = await connection.execute(
-        `
-      SELECT id, driver_id, status
-      FROM rides
-      WHERE id = ?
-      LIMIT 1
-      `,
-        [rideId],
-      );
-      const ride = rideRows[0];
-      if (!ride) {
-        await connection.rollback();
-        return { success: false, reason: "ride_not_found" };
-      }
+    if (!ride) return false;
 
-      if (Number(ride.driver_id) !== Number(driverId)) {
-        await connection.rollback();
-        return { success: false, reason: "not_ride_owner" };
-      }
+    const nextSeats = Number(ride.available_seats || 0) + Number(seats);
 
-      if (ride.status !== "ongoing") {
-        await connection.rollback();
-        return {
-          success: false,
-          reason: `invalid_status_${ride.status}`,
-        };
-      }
+    const { data, error } = await supabase
+      .from("rides")
+      .update({
+        available_seats: nextSeats,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id)
+      .select("id")
+      .maybeSingle();
 
-      await connection.execute(
-        `
-      UPDATE rides
-      SET status = 'completed',
-          completed_at = NOW(),
-          updated_at = NOW()
-      WHERE id = ?
-        AND driver_id = ?
-        AND status = 'ongoing'
-      `,
-        [rideId, driverId],
-      );
+    if (error) throw error;
 
-      await connection.execute(
-        `
-      UPDATE ride_bookings
-      SET status = 'completed',
-          completed_at = NOW(),
-          updated_at = NOW()
-      WHERE ride_id = ?
-        AND status = 'ongoing'
-      `,
-        [rideId],
-      );
+    return !!data;
+  },
 
-      await connection.commit();
+  async findDriverRideById(supabase, rideId, driverId) {
+    const { data, error } = await supabase
+      .from("rides")
+      .select(`
+        *,
+        vehicles (
+          brand,
+          model,
+          registration_number,
+          color
+        )
+      `)
+      .eq("id", rideId)
+      .eq("driver_id", driverId)
+      .maybeSingle();
 
-      return { success: true };
-    } catch (error) {
-      await connection.rollback();
-      throw error;
-    } finally {
-      connection.release();
+    if (error) throw error;
+
+    return data || null;
+  },
+
+  async findRideBookingsForDriver(supabase, rideId, driverId) {
+    const ride = await this.findDriverRideById(supabase, rideId, driverId);
+
+    if (!ride) return [];
+
+    const { data, error } = await supabase
+      .from("ride_bookings")
+      .select("*")
+      .eq("ride_id", rideId)
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+
+    return data || [];
+  },
+
+  async updateDriverRide(supabase, rideId, driverId, payload) {
+    const { data, error } = await supabase
+      .from("rides")
+      .update({
+        price_per_seat: payload.price_per_seat,
+        available_seats: payload.available_seats,
+        pet_allowed: payload.pet_allowed,
+        smoking_allowed: payload.smoking_allowed,
+        instant_booking: payload.instant_booking,
+        max_two_in_back: payload.max_two_in_back,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", rideId)
+      .eq("driver_id", driverId)
+      .neq("status", "cancelled")
+      .select("id")
+      .maybeSingle();
+
+    if (error) throw error;
+
+    return !!data;
+  },
+
+  async startRide(supabase, rideId, driverId) {
+    const ride = await this.findDriverRideById(supabase, rideId, driverId);
+
+    if (!ride) {
+      return { success: false, reason: "ride_not_found_or_not_owner" };
     }
+
+    if (ride.status !== "scheduled") {
+      return { success: false, reason: `invalid_status_${ride.status}` };
+    }
+
+    const now = new Date().toISOString();
+
+    const { data, error } = await supabase
+      .from("rides")
+      .update({
+        status: "ongoing",
+        started_at: now,
+        updated_at: now,
+      })
+      .eq("id", rideId)
+      .eq("driver_id", driverId)
+      .eq("status", "scheduled")
+      .select("id")
+      .maybeSingle();
+
+    if (error) throw error;
+
+    if (!data) {
+      return { success: false, reason: "ride_update_failed" };
+    }
+
+    const { error: bookingError } = await supabase
+      .from("ride_bookings")
+      .update({
+        status: "ongoing",
+        updated_at: now,
+      })
+      .eq("ride_id", rideId)
+      .eq("status", "accepted");
+
+    if (bookingError) throw bookingError;
+
+    return { success: true };
+  },
+
+  async completeRide(supabase, rideId, driverId) {
+    const ride = await this.findDriverRideById(supabase, rideId, driverId);
+
+    if (!ride) {
+      return { success: false, reason: "ride_not_found_or_not_owner" };
+    }
+
+    if (ride.status !== "ongoing") {
+      return { success: false, reason: `invalid_status_${ride.status}` };
+    }
+
+    const now = new Date().toISOString();
+
+    const { data, error } = await supabase
+      .from("rides")
+      .update({
+        status: "completed",
+        completed_at: now,
+        updated_at: now,
+      })
+      .eq("id", rideId)
+      .eq("driver_id", driverId)
+      .eq("status", "ongoing")
+      .select("id")
+      .maybeSingle();
+
+    if (error) throw error;
+
+    if (!data) {
+      return { success: false, reason: "ride_update_failed" };
+    }
+
+    const { error: bookingError } = await supabase
+      .from("ride_bookings")
+      .update({
+        status: "completed",
+        completed_at: now,
+        updated_at: now,
+      })
+      .eq("ride_id", rideId)
+      .eq("status", "ongoing");
+
+    if (bookingError) throw bookingError;
+
+    return { success: true };
   },
 };
 
