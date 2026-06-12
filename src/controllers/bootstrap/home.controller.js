@@ -1,3 +1,4 @@
+const { supabaseAdmin } = require("../../config/supabase");
 const HomeModel = require("../../models/bootstrap/home.model");
 
 const getHomeBootstrap = async (req, res) => {
@@ -6,10 +7,10 @@ const getHomeBootstrap = async (req, res) => {
 
     const [stats, upcomingBooking, popularRoutes, availableRides] =
       await Promise.all([
-        HomeModel.getUserStats(req.supabase, req.user.id),
-        HomeModel.getUpcomingBooking(req.supabase, req.user.id),
-        HomeModel.getPopularRoutes(req.supabase),
-        HomeModel.getAvailableRides(req.supabase, {
+        HomeModel.getUserStats(supabaseAdmin, req.user.id),
+        HomeModel.getUpcomingBooking(supabaseAdmin, req.user.id),
+        HomeModel.getPopularRoutes(supabaseAdmin),
+        HomeModel.getAvailableRides(supabaseAdmin, {
           source,
           destination,
           rideDate: ride_date,

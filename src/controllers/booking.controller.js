@@ -1,4 +1,6 @@
+const { supabaseAdmin } = require("../config/supabase");
 const BookingModel = require("../models/booking.model");
+const ChatModel = require("../models/chat/chat.model");
 const reviewModel = require("../models/review.model");
 const RideModel = require("../models/ride.model");
 const { sendPushToUsers } = require("../services/notification.service");
@@ -37,7 +39,7 @@ const createBooking = async (req, res) => {
       });
     }
 
-    const ride = await RideModel.findForBooking(req.supabase, ride_id);
+    const ride = await RideModel.findForBooking(supabaseAdmin, ride_id);
 
     if (!ride) {
       return res.status(404).json({
@@ -55,7 +57,7 @@ const createBooking = async (req, res) => {
 
     const existingBooking =
       await BookingModel.findActiveBookingByPassengerAndRide(
-        req.supabase,
+        supabaseAdmin,
         req.user.id,
         ride.id,
       );
@@ -73,9 +75,8 @@ const createBooking = async (req, res) => {
         message: "Not enough seats available.",
       });
     }
-
     const seatUpdated = await RideModel.decreaseAvailableSeats(
-      req.supabase,
+      supabaseAdmin,
       ride.id,
       requestedSeats,
     );
@@ -87,9 +88,13 @@ const createBooking = async (req, res) => {
       });
     }
 
-    const totalPrice = Number(ride.price_per_seat) * requestedSeats;
+    const distanceKm = Number(ride.distance_meters || 0) / 1000;
 
-    const booking = await BookingModel.createBooking(req.supabase, {
+    const totalPrice = Number(
+      (Number(ride.price_per_km || 0) * distanceKm * requestedSeats).toFixed(2),
+    );
+
+    const booking = await BookingModel.createBooking(supabaseAdmin, {
       bookingCode: generateBookingCode(),
       rideId: ride.id,
       passengerId: req.user.id,
@@ -132,6 +137,13 @@ const createBooking = async (req, res) => {
       },
     });
 
+    const room = await ChatModel.createRoom(supabaseAdmin, {
+      bookingId: booking.id,
+      rideId: ride.id,
+      passengerId: req.user.id,
+      driverId: ride.driver_id,
+    });
+    
     return res.status(201).json({
       success: true,
       message: "Booking created successfully.",
@@ -147,12 +159,44 @@ const createBooking = async (req, res) => {
   }
 };
 
+function mapBookingToUi(booking) {
+  const ride = booking.rides || {};
+  const driver = ride.user_details || {};
+  const vehicle = ride.vehicles || {};
+
+  return {
+    id: String(booking.id),
+    code: booking.booking_code,
+
+    from: booking.ride_source || ride.source_address || "",
+    to: booking.ride_destination || ride.destination_address || "",
+
+    pickup: booking.ride_source || ride.source_address || "",
+    drop: booking.ride_destination || ride.destination_address || "",
+
+    date: booking.ride_date,
+    time: booking.ride_time,
+
+    price: Number(booking.total_price || 0),
+    seats: Number(booking.seats || 0),
+
+    driver: driver.full_name || "Driver",
+
+    car: `${vehicle.brand || ""} ${vehicle.model || ""}`.trim() || "Vehicle",
+
+    paymentStatus: booking.payment_status,
+    bookingStatus: booking.status,
+  };
+}
+
 const getMyBookings = async (req, res) => {
   try {
-    const bookings = await BookingModel.findByPassenger(
-      req.supabase,
+    const rawBookings = await BookingModel.findByPassenger(
+      supabaseAdmin,
       req.user.id,
     );
+
+    const bookings = rawBookings.map(mapBookingToUi);
 
     return res.status(200).json({
       success: true,
@@ -191,10 +235,62 @@ const getDriverBookings = async (req, res) => {
   }
 };
 
+function mapBookingDetailsToUi(booking, hasReviewed = false) {
+  const ride = booking.rides || {};
+  const driver = ride.user_details || {};
+  const vehicle = ride.vehicles || {};
+
+  const from = booking.ride_source || ride.source_address || "";
+
+  const to = booking.ride_destination || ride.destination_address || "";
+
+  return {
+    id: String(booking.id),
+    code: booking.booking_code,
+    rideId: String(booking.ride_id),
+
+    from,
+    to,
+    fullFrom: from,
+    fullTo: to,
+
+    sourceLat: Number(booking.ride_source_lat || ride.source_lat || 0),
+    sourceLng: Number(booking.ride_source_lng || ride.source_lng || 0),
+    destinationLat: Number(
+      booking.ride_destination_lat || ride.destination_lat || 0,
+    ),
+    destinationLng: Number(
+      booking.ride_destination_lng || ride.destination_lng || 0,
+    ),
+
+    date: booking.ride_date || ride.ride_date || "",
+    time: booking.ride_time || ride.departure_time || "",
+
+    seats: Number(booking.seats || 0),
+    pricePerSeat: Number(booking.price_per_seat || 0),
+    totalPrice: Number(booking.total_price || 0),
+
+    status: booking.status,
+    paymentStatus: booking.payment_status,
+    paymentType: booking.payment_type || "cash",
+
+    driverName: driver.full_name || "Driver",
+    driverPhone: driver.phone || null,
+    driverId: ride.driver_id,
+
+    car: `${vehicle.brand || ""} ${vehicle.model || ""}`.trim() || "Vehicle",
+
+    registrationNumber: vehicle.registration_number || "",
+
+    color: vehicle.color || "",
+
+    hasReviewed: Boolean(hasReviewed),
+  };
+}
 const getBookingById = async (req, res) => {
   try {
     const booking = await BookingModel.findById(
-      req.supabase,
+      supabaseAdmin,
       req.params.id,
       req.user.id,
     );
@@ -207,18 +303,17 @@ const getBookingById = async (req, res) => {
     }
 
     const hasReviewed = await reviewModel.hasReviewed(
-      req.supabase,
+      supabaseAdmin,
       booking.id,
     );
+
+    const mappedBooking = mapBookingDetailsToUi(booking, hasReviewed);
 
     return res.status(200).json({
       success: true,
       message: "Booking fetched successfully.",
       data: {
-        booking: {
-          ...booking,
-          has_reviewed: hasReviewed,
-        },
+        booking: mappedBooking,
       },
     });
   } catch (error) {
@@ -234,7 +329,7 @@ const getBookingById = async (req, res) => {
 const cancelBooking = async (req, res) => {
   try {
     const booking = await BookingModel.findById(
-      req.supabase,
+      supabaseAdmin,
       req.params.id,
       req.user.id,
     );
@@ -261,7 +356,7 @@ const cancelBooking = async (req, res) => {
     }
 
     const updated = await BookingModel.updateStatus(
-      req.supabase,
+      supabaseAdmin,
       booking.id,
       req.user.id,
       "cancelled",
@@ -269,7 +364,7 @@ const cancelBooking = async (req, res) => {
 
     if (updated) {
       await RideModel.increaseAvailableSeats(
-        req.supabase,
+        supabaseAdmin,
         booking.ride_id,
         booking.seats,
       );
@@ -280,7 +375,7 @@ const cancelBooking = async (req, res) => {
       message: "Booking cancelled successfully.",
     });
   } catch (error) {
-    logError("CANCEL BOOKING", error)
+    logError("CANCEL BOOKING", error);
     console.error("[ERROR] Cancel booking:", error?.message || error);
 
     return res.status(500).json({
