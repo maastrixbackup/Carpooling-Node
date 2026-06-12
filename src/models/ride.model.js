@@ -1,55 +1,60 @@
 const RideModel = {
   async create(supabase, payload) {
-    const { data, error } = await supabase
-      .from("rides")
-      .insert({
-        driver_id: payload.driverId,
-        vehicle_id: payload.vehicleId,
-        source_address: payload.sourceAddress,
-        source_place_id: payload.sourcePlaceId || null,
-        destination_address: payload.destinationAddress,
-        destination_place_id: payload.destinationPlaceId || null,
-        source_lat: payload.sourceLat,
-        source_lng: payload.sourceLng,
-        destination_lat: payload.destinationLat,
-        destination_lng: payload.destinationLng,
-        route_points: payload.routePoints || null,
-        ride_date: payload.rideDate,
-        departure_time: payload.departureTime,
-        polyline: payload.polyline || null,
-        distance_meters: payload.distanceMeters || null,
-        duration_seconds: payload.durationSeconds || null,
-        estimated_reach_time: payload.estimatedReachTime || null,
-        pet_allowed: payload.petAllowed || "no",
-        smoking_allowed: payload.smokingAllowed || "no",
-        instant_booking: payload.instantBooking || "yes",
-        max_two_in_back: payload.maxTwoInBack || "no",
-        price_per_seat: payload.pricePerSeat,
-        total_seats: payload.totalSeats,
-        available_seats: payload.availableSeats || payload.totalSeats,
-        status: "scheduled",
-      })
-      .select("*")
-      .single();
+    const { data, error } = await supabase.rpc("create_ride_with_route_line", {
+      p_driver_id: payload.driverId,
+      p_vehicle_id: payload.vehicleId,
 
+      p_source_address: payload.sourceAddress,
+      p_source_place_id: payload.sourcePlaceId || null,
+
+      p_destination_address: payload.destinationAddress,
+      p_destination_place_id: payload.destinationPlaceId || null,
+
+      p_source_lat: payload.sourceLat,
+      p_source_lng: payload.sourceLng,
+      p_destination_lat: payload.destinationLat,
+      p_destination_lng: payload.destinationLng,
+
+      p_ride_date: payload.rideDate,
+      p_departure_time: payload.departureTime,
+
+      p_polyline: payload.polyline || null,
+      p_route_line_wkt: payload.routeLineWkt || null,
+
+      p_distance_meters: payload.distanceMeters || null,
+      p_duration_seconds: payload.durationSeconds || null,
+      p_estimated_reach_time: payload.estimatedReachTime || null,
+
+      p_pet_allowed: payload.petAllowed || "no",
+      p_smoking_allowed: payload.smokingAllowed || "no",
+      p_instant_booking: payload.instantBooking || "yes",
+      p_max_two_in_back: payload.maxTwoInBack || "no",
+
+      p_price_per_km: payload.pricePerKm || 0,
+      p_price_per_seat: payload.pricePerSeat || 0,
+
+      p_total_seats: payload.totalSeats,
+      p_available_seats: payload.availableSeats || payload.totalSeats,
+    });
     if (error) throw error;
-
     return data;
   },
 
   async findById(supabase, id) {
     const { data, error } = await supabase
-      .from("rides")
-      .select(`
-        *,
-        vehicles (
-          brand,
-          model,
-          registration_number,
-          color,
-          rating
-        )
-      `)
+      .from("rides_with_driver")
+      .select(
+        `
+      *,
+      vehicles (
+        brand,
+        model,
+        registration_number,
+        color,
+        rating
+      )
+    `,
+      )
       .eq("id", id)
       .maybeSingle();
 
@@ -60,17 +65,19 @@ const RideModel = {
 
   async findAll(supabase, filters = {}) {
     let query = supabase
-      .from("rides")
-      .select(`
-        *,
-        vehicles (
-          brand,
-          model,
-          registration_number,
-          color,
-          rating
-        )
-      `)
+      .from("rides_with_driver")
+      .select(
+        `
+      *,
+      vehicles (
+        brand,
+        model,
+        registration_number,
+        color,
+        rating
+      )
+    `,
+      )
       .eq("status", "scheduled")
       .gt("available_seats", 0)
       .order("ride_date", { ascending: true })
@@ -93,16 +100,31 @@ const RideModel = {
     }
 
     const { data, error } = await query;
-
     if (error) throw error;
 
+    return data || [];
+  },
+
+  async searchMatchedRides(supabase, filters = {}) {
+    const { data, error } = await supabase.rpc("search_matched_rides", {
+      p_source_lat: Number(filters.sourceLat),
+      p_source_lng: Number(filters.sourceLng),
+      p_destination_lat: Number(filters.destinationLat),
+      p_destination_lng: Number(filters.destinationLng),
+      p_ride_date: filters.rideDate || null,
+      p_min_seats: Number(filters.minSeats || 1),
+      p_max_distance_meters: 15000,
+    });
+
+    if (error) throw error;
     return data || [];
   },
 
   async findByDriver(supabase, driverId) {
     const { data, error } = await supabase
       .from("rides")
-      .select(`
+      .select(
+        `
         *,
         vehicles (
           brand,
@@ -110,7 +132,8 @@ const RideModel = {
           registration_number,
           color
         )
-      `)
+      `,
+      )
       .eq("driver_id", driverId)
       .order("ride_date", { ascending: false })
       .order("departure_time", { ascending: false });
@@ -201,7 +224,8 @@ const RideModel = {
   async findDriverRideById(supabase, rideId, driverId) {
     const { data, error } = await supabase
       .from("rides")
-      .select(`
+      .select(
+        `
         *,
         vehicles (
           brand,
@@ -209,7 +233,8 @@ const RideModel = {
           registration_number,
           color
         )
-      `)
+      `,
+      )
       .eq("id", rideId)
       .eq("driver_id", driverId)
       .maybeSingle();
@@ -240,6 +265,7 @@ const RideModel = {
       .from("rides")
       .update({
         price_per_seat: payload.price_per_seat,
+        price_per_km: payload.price_per_km,
         available_seats: payload.available_seats,
         pet_allowed: payload.pet_allowed,
         smoking_allowed: payload.smoking_allowed,

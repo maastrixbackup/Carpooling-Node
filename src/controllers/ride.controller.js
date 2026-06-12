@@ -1,6 +1,9 @@
 const RideModel = require("../models/ride.model");
 const VehicleModel = require("../models/vehicle.model");
 const { getDrivingRoutes } = require("../utils/route.utils");
+const { matchPassengerRoute } = require("../utils/routeMatch.utils");
+const { decodePolylineToLineString } = require("../utils/geo.utils");
+const { supabaseAdmin } = require("../config/supabase");
 
 const createRide = async (req, res) => {
   try {
@@ -20,6 +23,7 @@ const createRide = async (req, res) => {
       smoking_allowed,
       instant_booking,
       max_two_in_back,
+      price_per_km,
       price_per_seat,
       total_seats,
       available_seats,
@@ -36,7 +40,7 @@ const createRide = async (req, res) => {
       !destination_lng ||
       !ride_date ||
       !departure_time ||
-      !price_per_seat ||
+      !price_per_km ||
       !total_seats
     ) {
       return res.status(400).json({
@@ -46,7 +50,7 @@ const createRide = async (req, res) => {
     }
 
     const vehicle = await VehicleModel.findById(
-      req.supabase,
+     supabaseAdmin,
       vehicle_id,
       req.user.id,
     );
@@ -80,7 +84,7 @@ const createRide = async (req, res) => {
       departure_time,
       selectedRoute.duration_seconds,
     );
-
+    const routeLineWkt = decodePolylineToLineString(selectedRoute.polyline);
     const ride = await RideModel.create(req.supabase, {
       driverId: req.user.id,
       vehicleId: vehicle_id,
@@ -93,6 +97,7 @@ const createRide = async (req, res) => {
       destinationLat: Number(destination_lat),
       destinationLng: Number(destination_lng),
       routePoints: selectedRoute.route_points,
+      routeLineWkt,
       rideDate: ride_date,
       departureTime: departure_time,
       polyline: selectedRoute.polyline,
@@ -103,7 +108,8 @@ const createRide = async (req, res) => {
       smokingAllowed: smoking_allowed || "no",
       instantBooking: instant_booking || "yes",
       maxTwoInBack: max_two_in_back || "no",
-      pricePerSeat: Number(price_per_seat),
+      pricePerKm: Number(price_per_km),
+      pricePerSeat: Number(price_per_seat || 0),
       totalSeats: Number(total_seats),
       availableSeats: Number(available_seats || total_seats),
     });
@@ -125,11 +131,56 @@ const createRide = async (req, res) => {
 
 const getRides = async (req, res) => {
   try {
-    const rides = await RideModel.findAll(req.supabase, {
-      source: req.query.source,
-      destination: req.query.destination,
-      rideDate: req.query.ride_date,
-      minSeats: req.query.min_seats,
+    const {
+      source,
+      destination,
+      source_lat,
+      source_lng,
+      destination_lat,
+      destination_lng,
+      ride_date,
+      min_seats,
+    } = req.query;
+
+    const hasPartialCoords =
+      source_lat || source_lng || destination_lat || destination_lng;
+
+    const hasAllCoords =
+      source_lat && source_lng && destination_lat && destination_lng;
+
+    if (hasPartialCoords && !hasAllCoords) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Source and destination coordinates are required for route matching.",
+      });
+    }
+
+    const isCoordinateSearch = Boolean(hasAllCoords);
+    const db = supabaseAdmin;
+
+    if (isCoordinateSearch) {
+      const rides = await RideModel.searchMatchedRides(db, {
+        sourceLat: source_lat,
+        sourceLng: source_lng,
+        destinationLat: destination_lat,
+        destinationLng: destination_lng,
+        rideDate: ride_date || null,
+        minSeats: min_seats || 1,
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: "Matched rides fetched successfully.",
+        data: { rides },
+      });
+    }
+
+    const rides = await RideModel.findAll(db, {
+      source,
+      destination,
+      rideDate: ride_date,
+      minSeats: min_seats,
     });
 
     return res.status(200).json({
@@ -142,14 +193,14 @@ const getRides = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: "Something went wrong while fetching rides.",
+      message: error?.message || "Something went wrong while fetching rides.",
     });
   }
 };
 
 const getRideById = async (req, res) => {
   try {
-    const ride = await RideModel.findById(req.supabase, req.params.id);
+    const ride = await RideModel.findById(supabaseAdmin, req.params.id);
 
     if (!ride) {
       return res.status(404).json({
@@ -195,7 +246,7 @@ const getMyRides = async (req, res) => {
 const cancelRide = async (req, res) => {
   try {
     const updated = await RideModel.updateStatus(
-      req.supabase,
+     supabaseAdmin,
       req.params.id,
       req.user.id,
       "cancelled",
@@ -262,7 +313,7 @@ const getDriverRideDetails = async (req, res) => {
     const driverId = req.user.id;
 
     const ride = await RideModel.findDriverRideById(
-      req.supabase,
+     supabaseAdmin,
       rideId,
       driverId,
     );
@@ -275,7 +326,7 @@ const getDriverRideDetails = async (req, res) => {
     }
 
     const bookings = await RideModel.findRideBookingsForDriver(
-      req.supabase,
+     supabaseAdmin,
       rideId,
       driverId,
     );
@@ -301,6 +352,7 @@ const updateRide = async (req, res) => {
     const driverId = req.user.id;
 
     const allowedPayload = {
+      price_per_km: req.body.price_per_km,
       price_per_seat: req.body.price_per_seat,
       available_seats: req.body.available_seats,
       pet_allowed: req.body.pet_allowed,
@@ -310,7 +362,7 @@ const updateRide = async (req, res) => {
     };
 
     const updated = await RideModel.updateDriverRide(
-      req.supabase,
+     supabaseAdmin,
       rideId,
       driverId,
       allowedPayload,
@@ -324,7 +376,7 @@ const updateRide = async (req, res) => {
     }
 
     const ride = await RideModel.findDriverRideById(
-      req.supabase,
+     supabaseAdmin,
       rideId,
       driverId,
     );
@@ -347,7 +399,7 @@ const updateRide = async (req, res) => {
 const startRide = async (req, res) => {
   try {
     const result = await RideModel.startRide(
-      req.supabase,
+     supabaseAdmin,
       req.params.id,
       req.user.id,
     );
@@ -384,7 +436,7 @@ const startRide = async (req, res) => {
 const completeRide = async (req, res) => {
   try {
     const result = await RideModel.completeRide(
-      req.supabase,
+     supabaseAdmin,
       req.params.id,
       req.user.id,
     );
@@ -425,6 +477,11 @@ function calculateEstimatedReachTime(rideDate, departureTime, durationSeconds) {
   if (Number.isNaN(start.getTime())) return null;
   start.setSeconds(start.getSeconds() + Number(durationSeconds));
   return start.toISOString();
+}
+
+function calculateKmPrice(distanceMeters, pricePerKm, seats = 1) {
+  const distanceKm = Number(distanceMeters) / 1000;
+  return Number((distanceKm * Number(pricePerKm) * Number(seats)).toFixed(2));
 }
 
 module.exports = {
