@@ -50,7 +50,7 @@ const createRide = async (req, res) => {
     }
 
     const vehicle = await VehicleModel.findById(
-     supabaseAdmin,
+      supabaseAdmin,
       vehicle_id,
       req.user.id,
     );
@@ -224,9 +224,32 @@ const getRideById = async (req, res) => {
   }
 };
 
+function mapMyRideToUi(ride) {
+  const vehicle = ride.vehicles || {};
+  return {
+    id: String(ride.id),
+    source_address: ride.source_address || "",
+    destination_address: ride.destination_address || "",
+    ride_date: ride.ride_date || "",
+    departure_time: ride.departure_time || "",
+    price_per_km: Number(ride.price_per_km || 0),
+    price_per_seat: Number(ride.price_per_seat || 0),
+    total_seats: Number(ride.total_seats || 0),
+    available_seats: Number(ride.available_seats || 0),
+    brand: vehicle.brand || "",
+    model: vehicle.model || "",
+    status: ride.status || "scheduled",
+  };
+}
+
 const getMyRides = async (req, res) => {
   try {
-    const rides = await RideModel.findByDriver(req.supabase, req.user.id);
+    const rawRides = await RideModel.findByDriver(
+      supabaseAdmin,
+      req.user.id,
+    );
+
+    const rides = rawRides.map(mapMyRideToUi);
 
     return res.status(200).json({
       success: true,
@@ -246,7 +269,7 @@ const getMyRides = async (req, res) => {
 const cancelRide = async (req, res) => {
   try {
     const updated = await RideModel.updateStatus(
-     supabaseAdmin,
+      supabaseAdmin,
       req.params.id,
       req.user.id,
       "cancelled",
@@ -307,29 +330,85 @@ const getRouteOptions = async (req, res) => {
   }
 };
 
+function mapDriverRideToUi(ride) {
+  const vehicle = ride.vehicles || {};
+
+  return {
+    id: String(ride.id),
+    source_address: ride.source_address,
+    destination_address: ride.destination_address,
+    ride_date: ride.ride_date,
+    departure_time: ride.departure_time,
+
+    price_per_km: Number(ride.price_per_km || 0),
+    price_per_seat: Number(ride.price_per_seat || 0),
+
+    total_seats: Number(ride.total_seats || 0),
+    available_seats: Number(ride.available_seats || 0),
+
+    status: ride.status,
+
+    brand: vehicle.brand || "",
+    model: vehicle.model || "",
+    registration_number: vehicle.registration_number || "",
+    color: vehicle.color || "",
+
+    distance_meters: Number(ride.distance_meters || 0),
+    duration_seconds: Number(ride.duration_seconds || 0),
+
+    pet_allowed: ride.pet_allowed,
+    smoking_allowed: ride.smoking_allowed,
+    instant_booking: ride.instant_booking,
+    max_two_in_back: ride.max_two_in_back,
+  };
+}
+
+function mapDriverBookingToUi(booking) {
+  const passenger = booking.user_details || {};
+
+  return {
+    id: String(booking.id),
+    booking_code: booking.booking_code,
+
+    passenger_id: booking.passenger_id,
+    passenger_name: passenger.full_name || "Passenger",
+    passenger_phone: passenger.phone || null,
+    passenger_profile_picture: passenger.profile_picture || null,
+
+    seats: Number(booking.seats || 0),
+    status: booking.status || "pending",
+    total_price: Number(booking.total_price || 0),
+    payment_status: booking.payment_status || "unpaid",
+    created_at: booking.created_at,
+  };
+}
+
 const getDriverRideDetails = async (req, res) => {
   try {
     const rideId = req.params.id;
     const driverId = req.user.id;
 
-    const ride = await RideModel.findDriverRideById(
-     supabaseAdmin,
+    const rawRide = await RideModel.findDriverRideById(
+      supabaseAdmin,
       rideId,
       driverId,
     );
 
-    if (!ride) {
+    if (!rawRide) {
       return res.status(404).json({
         success: false,
         message: "Ride not found or not owned by you.",
       });
     }
 
-    const bookings = await RideModel.findRideBookingsForDriver(
-     supabaseAdmin,
+    const rawBookings = await RideModel.findRideBookingsForDriver(
+      supabaseAdmin,
       rideId,
       driverId,
     );
+
+    const ride = mapDriverRideToUi(rawRide);
+    const bookings = rawBookings.map(mapDriverBookingToUi);
 
     return res.status(200).json({
       success: true,
@@ -362,7 +441,7 @@ const updateRide = async (req, res) => {
     };
 
     const updated = await RideModel.updateDriverRide(
-     supabaseAdmin,
+      supabaseAdmin,
       rideId,
       driverId,
       allowedPayload,
@@ -376,7 +455,7 @@ const updateRide = async (req, res) => {
     }
 
     const ride = await RideModel.findDriverRideById(
-     supabaseAdmin,
+      supabaseAdmin,
       rideId,
       driverId,
     );
@@ -399,7 +478,7 @@ const updateRide = async (req, res) => {
 const startRide = async (req, res) => {
   try {
     const result = await RideModel.startRide(
-     supabaseAdmin,
+      supabaseAdmin,
       req.params.id,
       req.user.id,
     );
@@ -436,7 +515,7 @@ const startRide = async (req, res) => {
 const completeRide = async (req, res) => {
   try {
     const result = await RideModel.completeRide(
-     supabaseAdmin,
+      supabaseAdmin,
       req.params.id,
       req.user.id,
     );

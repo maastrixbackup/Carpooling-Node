@@ -43,10 +43,11 @@ const BookingModel = {
     return data || null;
   },
 
-async findById(supabase, id, userId) {
-  const { data, error } = await supabase
-    .from("ride_bookings")
-    .select(`
+  async findById(supabase, id, userId) {
+    const { data, error } = await supabase
+      .from("ride_bookings")
+      .select(
+        `
       id,
       booking_code,
       ride_id,
@@ -88,20 +89,21 @@ async findById(supabase, id, userId) {
           color
         )
       )
-    `)
-    .eq("id", id)
-    .maybeSingle();
+    `,
+      )
+      .eq("id", id)
+      .maybeSingle();
 
-  if (error) throw error;
-  if (!data) return null;
+    if (error) throw error;
+    if (!data) return null;
 
-  const isPassenger = String(data.passenger_id) === String(userId);
-  const isDriver = String(data.rides?.driver_id) === String(userId);
+    const isPassenger = String(data.passenger_id) === String(userId);
+    const isDriver = String(data.rides?.driver_id) === String(userId);
 
-  if (!isPassenger && !isDriver) return null;
+    if (!isPassenger && !isDriver) return null;
 
-  return data;
-},
+    return data;
+  },
 
   async findByPassenger(supabase, passengerId) {
     const { data, error } = await supabase
@@ -178,9 +180,7 @@ async findById(supabase, id, userId) {
 
   async updateStatus(supabase, id, userId, status) {
     const booking = await this.findById(supabase, id, userId);
-
     if (!booking) return false;
-
     const payload = {
       status,
       updated_at: new Date().toISOString(),
@@ -191,7 +191,7 @@ async findById(supabase, id, userId) {
       payload.confirmed_at = new Date().toISOString();
     }
 
-    if (status === "cancelled") {
+    if (status === "cancelled" || status === "rejected") {
       payload.cancelled_at = new Date().toISOString();
     }
 

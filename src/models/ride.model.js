@@ -125,14 +125,21 @@ const RideModel = {
       .from("rides")
       .select(
         `
-        *,
-        vehicles (
-          brand,
-          model,
-          registration_number,
-          color
-        )
-      `,
+      id,
+      source_address,
+      destination_address,
+      ride_date,
+      departure_time,
+      price_per_km,
+      price_per_seat,
+      total_seats,
+      available_seats,
+      status,
+      vehicles (
+        brand,
+        model
+      )
+    `,
       )
       .eq("driver_id", driverId)
       .order("ride_date", { ascending: false })
@@ -201,11 +208,8 @@ const RideModel = {
 
   async increaseAvailableSeats(supabase, id, seats) {
     const ride = await this.findById(supabase, id);
-
     if (!ride) return false;
-
     const nextSeats = Number(ride.available_seats || 0) + Number(seats);
-
     const { data, error } = await supabase
       .from("rides")
       .update({
@@ -226,14 +230,14 @@ const RideModel = {
       .from("rides")
       .select(
         `
-        *,
-        vehicles (
-          brand,
-          model,
-          registration_number,
-          color
-        )
-      `,
+      *,
+      vehicles (
+        brand,
+        model,
+        registration_number,
+        color
+      )
+    `,
       )
       .eq("id", rideId)
       .eq("driver_id", driverId)
@@ -251,7 +255,23 @@ const RideModel = {
 
     const { data, error } = await supabase
       .from("ride_bookings")
-      .select("*")
+      .select(
+        `
+      id,
+      booking_code,
+      passenger_id,
+      seats,
+      status,
+      total_price,
+      payment_status,
+      created_at,
+      user_details!ride_bookings_passenger_details_fkey (
+        full_name,
+        phone,
+        profile_picture
+      )
+    `,
+      )
       .eq("ride_id", rideId)
       .order("created_at", { ascending: false });
 
