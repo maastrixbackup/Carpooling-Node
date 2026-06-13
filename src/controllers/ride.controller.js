@@ -244,10 +244,7 @@ function mapMyRideToUi(ride) {
 
 const getMyRides = async (req, res) => {
   try {
-    const rawRides = await RideModel.findByDriver(
-      supabaseAdmin,
-      req.user.id,
-    );
+    const rawRides = await RideModel.findByDriver(supabaseAdmin, req.user.id);
 
     const rides = rawRides.map(mapMyRideToUi);
 
