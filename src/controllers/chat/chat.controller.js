@@ -33,6 +33,17 @@ const getRoomByBooking = async (req, res) => {
       });
     }
 
+    const isParticipant =
+      String(room.driver_id) === String(req.user.id) ||
+      String(room.passenger_id) === String(req.user.id);
+
+    if (!isParticipant) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied.",
+      });
+    }
+
     return res.status(200).json({
       success: true,
       data: { room },
@@ -68,15 +79,23 @@ const getMessages = async (req, res) => {
         message: "Access denied.",
       });
     }
-
     const messages = await ChatModel.getMessages(
       supabaseAdmin,
       req.params.roomId,
     );
-
     return res.status(200).json({
       success: true,
-      data: { messages },
+      data: {
+        messages,
+        currentUserId: req.user.id,
+        room: {
+          id: room.id,
+          booking_id: room.booking_id,
+          ride_id: room.ride_id,
+          passenger_id: room.passenger_id,
+          driver_id: room.driver_id,
+        },
+      },
     });
   } catch (error) {
     console.error(error);
@@ -144,6 +163,26 @@ const sendMessage = async (req, res) => {
 
 const markAsRead = async (req, res) => {
   try {
+    const room = await ChatModel.getRoomById(supabaseAdmin, req.params.roomId);
+
+    if (!room) {
+      return res.status(404).json({
+        success: false,
+        message: "Room not found.",
+      });
+    }
+
+    const isParticipant =
+      String(room.driver_id) === String(req.user.id) ||
+      String(room.passenger_id) === String(req.user.id);
+
+    if (!isParticipant) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied.",
+      });
+    }
+
     await ChatModel.markRoomMessagesRead(
       supabaseAdmin,
       req.params.roomId,

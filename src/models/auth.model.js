@@ -1,4 +1,4 @@
-const { supabaseAnon, supabaseAdmin } = require("../config/supabase");
+const { supabaseAnon, supabaseAdmin, createUserSupabaseClient } = require("../config/supabase");
 
 const AuthModel = {
   async signUp({ fullName, email, phone, password, role = "passenger" }) {

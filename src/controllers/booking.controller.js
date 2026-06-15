@@ -22,14 +22,12 @@ const getDisplayName = (user) => {
 const createBooking = async (req, res) => {
   try {
     const { ride_id, seats } = req.body;
-
     if (!ride_id || !seats) {
       return res.status(400).json({
         success: false,
         message: "Ride ID and seats are required.",
       });
     }
-
     const requestedSeats = Number(seats);
 
     if (!Number.isFinite(requestedSeats) || requestedSeats <= 0) {
@@ -38,7 +36,6 @@ const createBooking = async (req, res) => {
         message: "Seats must be greater than 0.",
       });
     }
-
     const ride = await RideModel.findForBooking(supabaseAdmin, ride_id);
 
     if (!ride) {
@@ -129,7 +126,7 @@ const createBooking = async (req, res) => {
     await sendPushToUsers({
       userIds: [req.user.id],
       title: "Booking Confirmed",
-      body: "Your seat reservation has been successfully confirmed.",
+      body: "Your seat reservation has been successfully booked.",
       data: {
         screen: "booking",
         bookingId: booking.id,
@@ -137,13 +134,13 @@ const createBooking = async (req, res) => {
       },
     });
 
-    const room = await ChatModel.createRoom(supabaseAdmin, {
-      bookingId: booking.id,
-      rideId: ride.id,
-      passengerId: req.user.id,
-      driverId: ride.driver_id,
-    });
-    
+    // const room = await ChatModel.createRoom(supabaseAdmin, {
+    //   bookingId: booking.id,
+    //   rideId: ride.id,
+    //   passengerId: req.user.id,
+    //   driverId: ride.driver_id,
+    // });
+
     return res.status(201).json({
       success: true,
       message: "Booking created successfully.",
@@ -195,7 +192,6 @@ const getMyBookings = async (req, res) => {
       supabaseAdmin,
       req.user.id,
     );
-
     const bookings = rawBookings.map(mapBookingToUi);
 
     return res.status(200).json({
@@ -287,6 +283,7 @@ function mapBookingDetailsToUi(booking, hasReviewed = false) {
     hasReviewed: Boolean(hasReviewed),
   };
 }
+
 const getBookingById = async (req, res) => {
   try {
     const booking = await BookingModel.findById(
@@ -322,6 +319,131 @@ const getBookingById = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Something went wrong while fetching booking.",
+    });
+  }
+};
+
+const respondToBooking = async (req, res) => {
+  try {
+    const { status } = req.body;
+    if (!["accepted", "rejected"].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Status must be accepted or rejected.",
+      });
+    }
+
+    const booking = await BookingModel.findById(
+      supabaseAdmin,
+      req.params.id,
+      req.user.id,
+    );
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found.",
+      });
+    }
+
+    const isDriver = String(booking.rides?.driver_id) === String(req.user.id);
+    if (!isDriver) {
+      return res.status(403).json({
+        success: false,
+        message: "Only the ride driver can respond to this booking.",
+      });
+    }
+
+    if (booking.status !== "pending") {
+      return res.status(400).json({
+        success: false,
+        message: `Booking is already ${booking.status}.`,
+      });
+    }
+
+    const updated = await BookingModel.updateStatus(
+      supabaseAdmin,
+      booking.id,
+      req.user.id,
+      status,
+    );
+
+    if (!updated) {
+      return res.status(400).json({
+        success: false,
+        message: "Unable to update booking.",
+      });
+    }
+
+    let chatRoom = null;
+
+    if (status === "accepted") {
+      const existingRoom = await ChatModel.getRoomByBookingId(
+        supabaseAdmin,
+        booking.id,
+      );
+
+      chatRoom = existingRoom;
+
+      if (!chatRoom) {
+        chatRoom = await ChatModel.createRoom(supabaseAdmin, {
+          bookingId: booking.id,
+          rideId: booking.ride_id,
+          passengerId: booking.passenger_id,
+          driverId: booking.rides.driver_id,
+        });
+      }
+
+      await sendPushToUsers({
+        userIds: [booking.passenger_id],
+        title: "Ride Accepted",
+        body: "Your booking has been accepted. You can now chat with the driver.",
+        data: {
+          screen: "booking",
+          bookingId: booking.id,
+          roomId: chatRoom.id,
+          type: "booking_accepted",
+        },
+      });
+    }
+
+    if (status === "rejected") {
+      await RideModel.increaseAvailableSeats(
+        supabaseAdmin,
+        booking.ride_id,
+        booking.seats,
+      );
+
+      await sendPushToUsers({
+        userIds: [booking.passenger_id],
+        title: "Ride Request Rejected",
+        body: "Your ride booking request was rejected by the driver.",
+        data: {
+          screen: "booking",
+          bookingId: booking.id,
+          type: "booking_rejected",
+        },
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message:
+        status === "accepted"
+          ? "Booking accepted successfully."
+          : "Booking rejected successfully.",
+      data: {
+        booking_id: booking.id,
+        status,
+        chat_room: chatRoom,
+      },
+    });
+  } catch (error) {
+    console.error("[ERROR] Respond booking:", error?.message || error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong while responding to booking.",
     });
   }
 };
@@ -391,4 +513,5 @@ module.exports = {
   getDriverBookings,
   getBookingById,
   cancelBooking,
+  respondToBooking
 };
