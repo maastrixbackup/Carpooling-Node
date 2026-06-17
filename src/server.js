@@ -16,6 +16,7 @@ const userRoutes = require("./routes/user.routes");
 const pushTokenRoutes = require("./routes/notification/pushToken.routes");
 const notificationRoutes = require("./routes/notification/notification.routes");
 const chatRoutes = require("./routes/chat/chat.routes")
+const verificationRoutes = require("./routes/verification.routes")
 const { errorHandler } = require("./middleware/error.middleware");
 
 const app = express();
@@ -33,15 +34,12 @@ app.set("io", io);
 
 io.on("connection", (socket) => {
   console.log("Socket connected:", socket.id);
-
   socket.on("join_room", (roomId) => {
     socket.join(`room-${roomId}`);
   });
-
   socket.on("leave_room", (roomId) => {
     socket.leave(`room-${roomId}`);
   });
-
   socket.on("disconnect", () => {
     console.log("Socket disconnected:", socket.id);
   });
@@ -75,6 +73,7 @@ app.use("/api/users", userRoutes);
 app.use("/api/push-tokens", pushTokenRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/chats", chatRoutes);
+app.use("/api/verification", verificationRoutes);
 
 
 
