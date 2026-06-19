@@ -213,6 +213,34 @@ const UserModel = {
       bank_verification_status: "approved",
     });
   },
+
+  async submitIdentity(supabase, userId, payload) {
+    const updatePayload = {
+      identity_type: payload.identityType,
+      identity_hash: payload.identityHash,
+      identity_last4: payload.identityLast4,
+      identity_submitted_at: new Date().toISOString(),
+      onboarding_step: "bank",
+    };
+
+    if (payload.identityType === "aadhaar") {
+      updatePayload.aadhaar_hash = payload.identityHash;
+      updatePayload.aadhaar_last4 = payload.identityLast4;
+      updatePayload.aadhaar_submitted_at = new Date().toISOString();
+      updatePayload.aadhaar_verification_status = "approved";
+      updatePayload.pan_verification_status = "pending";
+    }
+
+    if (payload.identityType === "pan") {
+      updatePayload.pan_hash = payload.identityHash;
+      updatePayload.pan_last4 = payload.identityLast4;
+      updatePayload.pan_submitted_at = new Date().toISOString();
+      updatePayload.pan_verification_status = "approved";
+      updatePayload.aadhaar_verification_status = "pending";
+    }
+
+    return this.updateDetails(supabase, userId, updatePayload);
+  },
 };
 
 module.exports = UserModel;
