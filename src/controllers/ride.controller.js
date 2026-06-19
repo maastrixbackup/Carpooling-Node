@@ -156,23 +156,51 @@ const getRides = async (req, res) => {
       });
     }
 
-    const isCoordinateSearch = Boolean(hasAllCoords);
     const db = supabaseAdmin;
 
-    if (isCoordinateSearch) {
-      const rides = await RideModel.searchMatchedRides(db, {
+    if (hasAllCoords) {
+      const basePayload = {
         sourceLat: source_lat,
         sourceLng: source_lng,
         destinationLat: destination_lat,
         destinationLng: destination_lng,
         rideDate: ride_date || null,
         minSeats: min_seats || 1,
+      };
+
+      // 1. Strict match first
+      let rides = await RideModel.searchMatchedRides(db, {
+        ...basePayload,
+        maxDistanceMeters: 1500,
+      });
+
+      if (rides.length > 0) {
+        return res.status(200).json({
+          success: true,
+          message: "Matched rides fetched successfully.",
+          data: {
+            matchType: "exact",
+            rides,
+          },
+        });
+      }
+
+      // 2. Nearby fallback
+      rides = await RideModel.searchMatchedRides(db, {
+        ...basePayload,
+        maxDistanceMeters: 10000,
       });
 
       return res.status(200).json({
         success: true,
-        message: "Matched rides fetched successfully.",
-        data: { rides },
+        message:
+          rides.length > 0
+            ? "Nearby rides fetched successfully."
+            : "No rides found.",
+        data: {
+          matchType: rides.length > 0 ? "nearby" : "none",
+          rides,
+        },
       });
     }
 
@@ -186,7 +214,10 @@ const getRides = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Rides fetched successfully.",
-      data: { rides },
+      data: {
+        matchType: "text",
+        rides,
+      },
     });
   } catch (error) {
     console.error("[ERROR] Get rides:", error?.message || error);
