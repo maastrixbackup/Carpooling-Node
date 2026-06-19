@@ -9,7 +9,8 @@ const {
   submitAadhaar,
   submitBankDetails,
   assertCanRedeem,
-  updateVerificationProfile
+  updateVerificationProfile,
+  submitIdentity
 } = require("../controllers/verification.controller");
 
 router.use(authMiddleware);
@@ -20,5 +21,6 @@ router.post("/aadhaar", submitAadhaar);
 router.post("/bank", submitBankDetails);
 router.get("/can-redeem", assertCanRedeem);
 router.post("/profile", updateVerificationProfile);
+router.post("/identity", submitIdentity);
 
 module.exports = router;

@@ -136,17 +136,35 @@ const me = async (req, res) => {
 
 const logout = async (req, res) => {
   try {
-    await AuthModel.logout(req.accessToken);
+    const authHeader = req.headers.authorization || "";
+    const accessToken = authHeader.startsWith("Bearer ")
+      ? authHeader.replace("Bearer ", "")
+      : req.body.access_token;
+
+    if (!accessToken) {
+      return res.status(200).json({
+        success: true,
+        message: "Logged out locally.",
+      });
+    }
+
+    const { error } = await supabaseAdmin.auth.admin.signOut(accessToken);
+
+    if (error) {
+      return res.status(200).json({
+        success: true,
+        message: "Local logout completed.",
+      });
+    }
+
     return res.status(200).json({
       success: true,
-      message: "Logout successful.",
+      message: "Logged out successfully.",
     });
   } catch (error) {
-    logError("Logout Error", error)
-    console.error("[ERROR] Logout:", error?.message || error);
-    return res.status(500).json({
-      success: false,
-      message: error?.message || "Unable to logout.",
+    return res.status(200).json({
+      success: true,
+      message: "Local logout completed.",
     });
   }
 };

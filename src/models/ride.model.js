@@ -113,9 +113,8 @@ const RideModel = {
       p_destination_lng: Number(filters.destinationLng),
       p_ride_date: filters.rideDate || null,
       p_min_seats: Number(filters.minSeats || 1),
-      p_max_distance_meters: 15000,
+      p_max_distance_meters: Number(filters.maxDistanceMeters || 1500),
     });
-
     if (error) throw error;
     return data || [];
   },
