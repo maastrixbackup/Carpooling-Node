@@ -45,16 +45,32 @@ const ChatModel = {
       .from("chat_rooms")
       .select(
         `
-        *,
-        rides (
-          id,
-          source_address,
-          destination_address
-        )
-      `,
+      id,
+      booking_id,
+      ride_id,
+      driver_id,
+      passenger_id,
+      created_at,
+      ride_bookings (
+        id,
+        ride_source,
+        ride_destination,
+        ride_date,
+        ride_time,
+        status
+      ),
+      rides (
+        id,
+        source_address,
+        destination_address,
+        ride_date,
+        departure_time,
+        status
       )
-      .or(`passenger_id.eq.${userId},driver_id.eq.${userId}`)
-      .order("updated_at", { ascending: false });
+    `,
+      )
+      .or(`driver_id.eq.${userId},passenger_id.eq.${userId}`)
+      .order("created_at", { ascending: false });
 
     if (error) throw error;
 
@@ -113,6 +129,82 @@ const ChatModel = {
     if (error) throw error;
 
     return true;
+  },
+
+  async getLatestMessagesByRoomIds(supabase, roomIds = []) {
+    if (!roomIds.length) return [];
+
+    const { data, error } = await supabase
+      .from("chat_messages")
+      .select(
+        `
+      id,
+      room_id,
+      sender_id,
+      message,
+      is_read,
+      created_at
+    `,
+      )
+      .in("room_id", roomIds)
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+
+    const latestMap = new Map();
+
+    for (const item of data || []) {
+      const roomId = String(item.room_id);
+
+      if (!latestMap.has(roomId)) {
+        latestMap.set(roomId, item);
+      }
+    }
+
+    return latestMap;
+  },
+
+  async getUnreadCountsByRoomIds(supabase, roomIds = [], currentUserId) {
+    if (!roomIds.length) return new Map();
+
+    const { data, error } = await supabase
+      .from("chat_messages")
+      .select("room_id")
+      .in("room_id", roomIds)
+      .neq("sender_id", currentUserId)
+      .eq("is_read", false);
+
+    if (error) throw error;
+
+    const countMap = new Map();
+
+    for (const item of data || []) {
+      const roomId = String(item.room_id);
+      countMap.set(roomId, (countMap.get(roomId) || 0) + 1);
+    }
+
+    return countMap;
+  },
+
+  async getUsersMap(supabase, userIds = []) {
+    const uniqueIds = [...new Set(userIds.filter(Boolean).map(String))];
+
+    if (!uniqueIds.length) return new Map();
+
+    const { data, error } = await supabase
+      .from("user_details")
+      .select("id, full_name, phone, profile_picture")
+      .in("id", uniqueIds);
+
+    if (error) throw error;
+
+    const map = new Map();
+
+    for (const user of data || []) {
+      map.set(String(user.id), user);
+    }
+
+    return map;
   },
 };
 
