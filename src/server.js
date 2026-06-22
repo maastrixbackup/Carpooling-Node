@@ -17,6 +17,7 @@ const pushTokenRoutes = require("./routes/notification/pushToken.routes");
 const notificationRoutes = require("./routes/notification/notification.routes");
 const chatRoutes = require("./routes/chat/chat.routes")
 const verificationRoutes = require("./routes/verification.routes")
+const rewardRoutes = require("./routes/reward.route")
 const { errorHandler } = require("./middleware/error.middleware");
 
 const app = express();
@@ -74,7 +75,7 @@ app.use("/api/push-tokens", pushTokenRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/chats", chatRoutes);
 app.use("/api/verification", verificationRoutes);
-
+app.use("/api/rewards", rewardRoutes);
 
 
 

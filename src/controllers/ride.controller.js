@@ -1,9 +1,13 @@
 const RideModel = require("../models/ride.model");
+const BookingModel = require("../models/booking.model");
 const VehicleModel = require("../models/vehicle.model");
 const { getDrivingRoutes } = require("../utils/route.utils");
 const { matchPassengerRoute } = require("../utils/routeMatch.utils");
 const { decodePolylineToLineString } = require("../utils/geo.utils");
 const { supabaseAdmin } = require("../config/supabase");
+const { incrementUserTotalRides } = require("../utils/user-stats.helper");
+const RewardService = require("../services/reward.service");
+const { logError } = require("../utils/logger");
 
 const createRide = async (req, res) => {
   try {
@@ -542,10 +546,13 @@ const startRide = async (req, res) => {
 
 const completeRide = async (req, res) => {
   try {
+    const rideId = req.params.id;
+    const driverId = req.user.id;
+
     const result = await RideModel.completeRide(
       supabaseAdmin,
-      req.params.id,
-      req.user.id,
+      rideId,
+      driverId,
     );
 
     if (!result.success) {
@@ -564,12 +571,34 @@ const completeRide = async (req, res) => {
       });
     }
 
+    console.log("STEP 1 COMPLETE");
+
+    const ride = await RideModel.findDriverRideById(
+      supabaseAdmin,
+      rideId,
+      driverId,
+    );
+    console.log("STEP 2 RIDE FETCHED");
+    const bookings = await BookingModel.findByDriver(supabaseAdmin, {
+      driverId,
+      rideId,
+    });
+
+    console.log("STEP 3 BOOKINGS FETCHED");
+
+    await incrementUserTotalRides(driverId);
+
+    await RewardService.rewardCompletedRide({
+      ride,
+      bookings,
+    });
+
     return res.status(200).json({
       success: true,
       message: "Ride completed successfully.",
     });
   } catch (error) {
-    console.error("[ERROR] Complete ride:", error?.message || error);
+    logError("COMPLETE_RIDE", error);
 
     return res.status(500).json({
       success: false,
