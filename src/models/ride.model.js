@@ -351,17 +351,13 @@ const RideModel = {
 
   async completeRide(supabase, rideId, driverId) {
     const ride = await this.findDriverRideById(supabase, rideId, driverId);
-
     if (!ride) {
       return { success: false, reason: "ride_not_found_or_not_owner" };
     }
-
     if (ride.status !== "ongoing") {
       return { success: false, reason: `invalid_status_${ride.status}` };
     }
-
     const now = new Date().toISOString();
-
     const { data, error } = await supabase
       .from("rides")
       .update({

@@ -160,7 +160,7 @@ const BookingModel = {
           source_address,
           destination_address,
           ride_date,
-          departure_time, driver_name
+          departure_time
         )
       `,
       )

@@ -14,13 +14,9 @@ const {
 router.use(authMiddleware);
 
 router.get("/my-rooms", getMyRooms);
-
 router.get("/booking/:bookingId", getRoomByBooking);
-
 router.get("/:roomId/messages", getMessages);
-
 router.post("/:roomId/messages", sendMessage);
-
 router.patch("/:roomId/read", markAsRead);
 
 module.exports = router;
