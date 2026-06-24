@@ -1,3 +1,4 @@
+const { supabaseAdmin } = require("../config/supabase");
 const UserModel = require("../models/user.model");
 
 const getFullProfile = async (req, res) => {
