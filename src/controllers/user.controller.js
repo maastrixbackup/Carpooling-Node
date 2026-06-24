@@ -28,7 +28,33 @@ const getFullProfile = async (req, res) => {
 
 const updateProfile = async (req, res) => {
   try {
-    const profile = await UserModel.updateProfile(req.user.id, req.body);
+    const payload = {
+      full_name: req.body.full_name,
+      phone: req.body.phone,
+    };
+
+    if (req.file) {
+      const fileExt = req.file.originalname.split(".").pop();
+      const fileName = `${req.user.id}-${Date.now()}.${fileExt}`;
+      const filePath = `profiles/${fileName}`;
+
+      const { error: uploadError } = await supabaseAdmin.storage
+        .from("user-documents")
+        .upload(filePath, req.file.buffer, {
+          contentType: req.file.mimetype,
+          upsert: true,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data } = supabaseAdmin.storage
+        .from("user-documents")
+        .getPublicUrl(filePath);
+
+      payload.profile_picture = data.publicUrl;
+    }
+
+    const profile = await UserModel.updateProfile(req.user.id, payload);
 
     return res.status(200).json({
       success: true,
@@ -36,7 +62,12 @@ const updateProfile = async (req, res) => {
       data: { user: profile },
     });
   } catch (error) {
-    console.error("Update profile error:", error);
+    console.error("Update profile error:", {
+      message: error?.message,
+      details: error?.details,
+      code: error?.code,
+      stack: error?.stack,
+    });
 
     return res.status(500).json({
       success: false,

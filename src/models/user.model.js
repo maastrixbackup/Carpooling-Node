@@ -107,7 +107,6 @@ const UserModel = {
       .single();
 
     if (error) throw error;
-
     return data;
   },
 
