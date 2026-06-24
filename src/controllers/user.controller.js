@@ -1,3 +1,4 @@
+const { supabaseAdmin } = require("../config/supabase");
 const UserModel = require("../models/user.model");
 
 const getFullProfile = async (req, res) => {
@@ -28,7 +29,35 @@ const getFullProfile = async (req, res) => {
 
 const updateProfile = async (req, res) => {
   try {
-    const profile = await UserModel.updateProfile(req.user.id, req.body);
+    const body = req.body || {};
+
+    const payload = {
+      full_name: body.full_name,
+      phone: body.phone,
+    };
+
+    if (req.file) {
+      const fileExt = req.file.originalname.split(".").pop() || "jpg";
+      const fileName = `${req.user.id}-${Date.now()}.${fileExt}`;
+      const filePath = `profiles/${fileName}`;
+
+      const { error: uploadError } = await supabaseAdmin.storage
+        .from("user-documents")
+        .upload(filePath, req.file.buffer, {
+          contentType: req.file.mimetype,
+          upsert: true,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data } = supabaseAdmin.storage
+        .from("user-documents")
+        .getPublicUrl(filePath);
+
+      payload.profile_picture = data.publicUrl;
+    }
+
+    const profile = await UserModel.updateProfile(req.user.id, payload);
 
     return res.status(200).json({
       success: true,
@@ -36,7 +65,20 @@ const updateProfile = async (req, res) => {
       data: { user: profile },
     });
   } catch (error) {
-    console.error("Update profile error:", error);
+    console.error("Update profile error:", {
+      message: error?.message,
+      details: error?.details,
+      code: error?.code,
+      stack: error?.stack,
+      body: req.body,
+      file: req.file
+        ? {
+            originalname: req.file.originalname,
+            mimetype: req.file.mimetype,
+            size: req.file.size,
+          }
+        : null,
+    });
 
     return res.status(500).json({
       success: false,

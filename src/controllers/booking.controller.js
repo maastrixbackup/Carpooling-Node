@@ -5,6 +5,7 @@ const reviewModel = require("../models/review.model");
 const RideModel = require("../models/ride.model");
 const { sendPushToUsers } = require("../services/notification.service");
 const { logError } = require("../utils/logger");
+const NotificationEventService = require("../services/notification-event.service");
 
 const generateBookingCode = () => {
   return `CP${Date.now()}${Math.floor(Math.random() * 900 + 100)}`;
@@ -110,37 +111,26 @@ const createBooking = async (req, res) => {
 
     const passengerName = getDisplayName(req.user);
 
-    await sendPushToUsers({
-      userIds: [ride.driver_id],
-      title: "New Ride Booking",
-      body: `${passengerName} has reserved ${requestedSeats} seat${
-        requestedSeats > 1 ? "s" : ""
-      } on your upcoming trip.`,
-      data: {
-        screen: "driver-ride",
-        rideId: ride.id,
-        type: "booking_created",
-      },
-    });
-
-    await sendPushToUsers({
-      userIds: [req.user.id],
-      title: "Booking Confirmed",
-      body: "Your seat reservation has been successfully booked.",
-      data: {
-        screen: "booking",
-        bookingId: booking.id,
-        type: "booking_created",
-      },
-    });
-
     // const room = await ChatModel.createRoom(supabaseAdmin, {
     //   bookingId: booking.id,
     //   rideId: ride.id,
     //   passengerId: req.user.id,
     //   driverId: ride.driver_id,
     // });
-
+    try {
+      await NotificationEventService.notifyBookingCreated({
+        passengerId: req.user.id,
+        driverId: ride.driver_id,
+        bookingId: booking.id,
+        rideId: ride.id,
+      });
+    } catch (error) {
+      console.error(
+        "[NOTIFICATION ERROR] Booking created:",
+        error?.message || error,
+      );
+    }
+    
     return res.status(201).json({
       success: true,
       message: "Booking created successfully.",
@@ -513,5 +503,5 @@ module.exports = {
   getDriverBookings,
   getBookingById,
   cancelBooking,
-  respondToBooking
+  respondToBooking,
 };

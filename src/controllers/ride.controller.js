@@ -8,6 +8,8 @@ const { supabaseAdmin } = require("../config/supabase");
 const { incrementUserTotalRides } = require("../utils/user-stats.helper");
 const RewardService = require("../services/reward.service");
 const { logError } = require("../utils/logger");
+const NotificationEventService = require("../services/notification-event.service")
+
 
 const createRide = async (req, res) => {
   try {
@@ -548,13 +550,11 @@ const completeRide = async (req, res) => {
   try {
     const rideId = req.params.id;
     const driverId = req.user.id;
-
     const result = await RideModel.completeRide(
       supabaseAdmin,
       rideId,
       driverId,
     );
-
     if (!result.success) {
       const messages = {
         ride_not_found_or_not_owner: "Ride not found or not owned by you.",
@@ -571,31 +571,67 @@ const completeRide = async (req, res) => {
       });
     }
 
-    console.log("STEP 1 COMPLETE");
-
     const ride = await RideModel.findDriverRideById(
       supabaseAdmin,
       rideId,
       driverId,
     );
-    console.log("STEP 2 RIDE FETCHED");
+
+    if (!ride) {
+      return res.status(404).json({
+        success: false,
+        message: "Completed ride not found.",
+      });
+    }
+
     const bookings = await BookingModel.findByDriver(supabaseAdmin, {
       driverId,
       rideId,
     });
 
-    console.log("STEP 3 BOOKINGS FETCHED");
+    const eligibleBookings = bookings.filter((booking) =>
+      ["accepted", "ongoing", "completed", "payment_confirmed"].includes(
+        booking.status,
+      ),
+    );
+
+    const passengerIds = [
+      ...new Set(
+        eligibleBookings
+          .map((booking) => booking.passenger_id)
+          .filter(Boolean)
+          .map(String),
+      ),
+    ];
 
     await incrementUserTotalRides(driverId);
 
     await RewardService.rewardCompletedRide({
       ride,
-      bookings,
+      bookings: eligibleBookings,
     });
+
+    try {
+      await NotificationEventService.notifyRideCompleted({
+        driverId: ride.driver_id || driverId,
+        passengerIds,
+        rideId: ride.id || rideId,
+      });
+    } catch (notifyError) {
+      console.error("[NOTIFICATION ERROR] Ride completed:", {
+        message: notifyError?.message,
+        details: notifyError?.details,
+        code: notifyError?.code,
+      });
+    }
 
     return res.status(200).json({
       success: true,
       message: "Ride completed successfully.",
+      data: {
+        rideId: ride.id,
+        notifiedPassengers: passengerIds.length,
+      },
     });
   } catch (error) {
     logError("COMPLETE_RIDE", error);
