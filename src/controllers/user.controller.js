@@ -28,13 +28,15 @@ const getFullProfile = async (req, res) => {
 
 const updateProfile = async (req, res) => {
   try {
+    const body = req.body || {};
+
     const payload = {
-      full_name: req.body.full_name,
-      phone: req.body.phone,
+      full_name: body.full_name,
+      phone: body.phone,
     };
 
     if (req.file) {
-      const fileExt = req.file.originalname.split(".").pop();
+      const fileExt = req.file.originalname.split(".").pop() || "jpg";
       const fileName = `${req.user.id}-${Date.now()}.${fileExt}`;
       const filePath = `profiles/${fileName}`;
 
@@ -67,6 +69,14 @@ const updateProfile = async (req, res) => {
       details: error?.details,
       code: error?.code,
       stack: error?.stack,
+      body: req.body,
+      file: req.file
+        ? {
+            originalname: req.file.originalname,
+            mimetype: req.file.mimetype,
+            size: req.file.size,
+          }
+        : null,
     });
 
     return res.status(500).json({

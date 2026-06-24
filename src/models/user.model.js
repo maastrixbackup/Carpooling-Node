@@ -81,7 +81,7 @@ const UserModel = {
     return !!data;
   },
 
-  async updateProfile(id, payload) {
+  async updateProfile(id, payload = {}) {
     const allowedPayload = {
       full_name: payload.full_name,
       phone: payload.phone,
@@ -98,6 +98,10 @@ const UserModel = {
         delete allowedPayload[key];
       }
     });
+
+    if (Object.keys(allowedPayload).length === 0) {
+      throw new Error("No valid profile fields provided.");
+    }
 
     const { data, error } = await supabaseAdmin
       .from("user_details")
