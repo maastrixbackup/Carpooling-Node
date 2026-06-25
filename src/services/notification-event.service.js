@@ -202,6 +202,59 @@ async function notifyRewardEarned({ userId, points, rideId }) {
   });
 }
 
+async function notifyBookingCancelled({
+  passengerId,
+  driverId,
+  bookingId,
+  rideId,
+}) {
+  const tasks = [];
+
+  if (passengerId) {
+    tasks.push(
+      notifyUsers({
+        userIds: [passengerId],
+        title: "Booking Cancelled",
+        body: "Your booking has been cancelled successfully.",
+        type: "booking_cancelled",
+        referenceType: "booking",
+        referenceId: bookingId,
+        data: {
+          screen: "booking",
+          bookingId,
+          rideId,
+          status: "cancelled",
+        },
+        priority: "normal",
+        saveHistory: true,
+      }),
+    );
+  }
+
+  if (driverId) {
+    tasks.push(
+      notifyUsers({
+        userIds: [driverId],
+        title: "Passenger Cancelled Booking",
+        body: "A passenger cancelled their booking on your ride.",
+        type: "booking_cancelled",
+        referenceType: "booking",
+        referenceId: bookingId,
+        data: {
+          screen: "driver-ride",
+          bookingId,
+          rideId,
+          status: "cancelled",
+        },
+        priority: "normal",
+        saveHistory: true,
+      }),
+    );
+  }
+
+  return Promise.allSettled(tasks);
+}
+
 module.exports = {
   NOTIFICATION_TYPES,
   notifyBookingCreated,
@@ -211,4 +264,5 @@ module.exports = {
   notifyRideCompleted,
   notifyIncomingMessage,
   notifyRewardEarned,
+  notifyBookingCancelled
 };
