@@ -86,6 +86,32 @@ const PushTokenModel = {
     return data || [];
   },
 
+  async getAllActiveTokens() {
+    const { data, error } = await supabaseAdmin
+      .from("user_push_tokens")
+      .select(
+        `
+      id,
+      user_id,
+      expo_push_token,
+      device_type,
+      device_name,
+      device_id,
+      app_version,
+      build_number,
+      os_version,
+      notifications_received,
+      failed_count,
+      last_used_at
+    `,
+      )
+      .eq("is_active", true);
+
+    if (error) throw error;
+
+    return data || [];
+  },
+
   async incrementReceivedByTokenIds(tokenIds = []) {
     const ids = [...new Set(tokenIds.filter(Boolean))];
 
@@ -142,7 +168,10 @@ const PushTokenModel = {
       .from("user_push_tokens")
       .update({
         failed_count: nextFailedCount,
-        last_error: String(errorMessage || "Push delivery failed").slice(0, 500),
+        last_error: String(errorMessage || "Push delivery failed").slice(
+          0,
+          500,
+        ),
         is_active: shouldDisable ? false : true,
         disabled_at: shouldDisable ? new Date().toISOString() : null,
         updated_at: new Date().toISOString(),

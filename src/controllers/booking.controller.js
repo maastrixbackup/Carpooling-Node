@@ -111,26 +111,27 @@ const createBooking = async (req, res) => {
 
     const passengerName = getDisplayName(req.user);
 
-    // const room = await ChatModel.createRoom(supabaseAdmin, {
-    //   bookingId: booking.id,
-    //   rideId: ride.id,
-    //   passengerId: req.user.id,
-    //   driverId: ride.driver_id,
-    // });
-    try {
-      await NotificationEventService.notifyBookingCreated({
-        passengerId: req.user.id,
-        driverId: ride.driver_id,
-        bookingId: booking.id,
-        rideId: ride.id,
-      });
-    } catch (error) {
-      console.error(
-        "[NOTIFICATION ERROR] Booking created:",
-        error?.message || error,
-      );
-    }
-    
+    setImmediate(async () => {
+      try {
+        await NotificationEventService.notifyBookingCreated({
+          passengerId: req.user.id,
+          driverId: ride.driver_id,
+          bookingId: booking.id,
+          rideId: ride.id,
+          passengerName,
+          from: ride.source_address,
+          to: ride.destination_address,
+        });
+      } catch (notifyError) {
+        console.error("[NOTIFICATION ERROR] Booking created:", {
+          message: notifyError?.message,
+          code: notifyError?.code,
+          details: notifyError?.details,
+          stack: notifyError?.stack,
+        });
+      }
+    });
+
     return res.status(201).json({
       success: true,
       message: "Booking created successfully.",
