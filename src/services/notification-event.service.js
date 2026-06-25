@@ -14,7 +14,7 @@ async function notifyBookingCreated({ passengerId, driverId, bookingId, rideId }
   await Promise.all([
     sendPushToUsers({
       userIds: [passengerId],
-      title: "Booking Confirmed",
+      title: "Booking Created",
       body: "Your seat reservation has been successfully booked.",
       data: {
         screen: "booking",
