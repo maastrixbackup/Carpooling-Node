@@ -1,72 +1,54 @@
 const { supabaseAdmin } = require("../../config/supabase");
 
-const NotificationModel = {
-  async getActivePushTokensByUserIds(userIds) {
-    if (!Array.isArray(userIds) || userIds.length === 0) return [];
+const DEFAULT_PAGE_SIZE = 30;
+const MAX_PAGE_SIZE = 100;
 
-    const { data, error } = await supabaseAdmin
-      .from("user_push_tokens")
-      .select("id, user_id, expo_push_token")
-      .in("user_id", userIds)
-      .eq("is_active", true);
+function normalizeLimit(limit) {
+  const value = Number(limit || DEFAULT_PAGE_SIZE);
 
-    if (error) throw error;
+  if (!Number.isFinite(value) || value <= 0) return DEFAULT_PAGE_SIZE;
 
-    return data || [];
-  },
+  return Math.min(value, MAX_PAGE_SIZE);
+}
 
-  async getAllActivePushTokens() {
-    const { data, error } = await supabaseAdmin
-      .from("user_push_tokens")
-      .select("id, user_id, expo_push_token")
-      .eq("is_active", true);
+function normalizeNotificationPayload({
+  userId,
+  title,
+  message,
+  type,
+  referenceType = null,
+  referenceId = null,
+  data = null,
+  priority = "normal",
+  deliveryStatus = "pending",
+  sentAt = null,
+}) {
+  if (!userId) throw new Error("Notification userId is required.");
+  if (!title) throw new Error("Notification title is required.");
+  if (!message) throw new Error("Notification message is required.");
+  if (!type) throw new Error("Notification type is required.");
 
-    if (error) throw error;
-
-    return data || [];
-  },
-
-  async incrementReceivedByTokenIds(tokenIds) {
-    if (!Array.isArray(tokenIds) || tokenIds.length === 0) return;
-    const { error } = await supabaseAdmin.rpc("increment_push_received", {
-      token_ids: tokenIds,
-    });
-
-    if (error) throw error;
-  },
-
-  async deactivateTokens(tokens) {
-    if (!Array.isArray(tokens) || tokens.length === 0) return;
-
-    const { error } = await supabaseAdmin
-      .from("user_push_tokens")
-      .update({
-        is_active: false,
-        updated_at: new Date().toISOString(),
-      })
-      .in("expo_push_token", tokens);
-
-    if (error) throw error;
-  },
-
-  async createNotification({
-    userId,
-    title,
+  return {
+    user_id: userId,
+    title: String(title).slice(0, 150),
     message,
     type,
-    referenceType = null,
-    referenceId = null,
-  }) {
+    reference_type: referenceType,
+    reference_id: referenceId,
+    data,
+    priority,
+    delivery_status: deliveryStatus,
+    sent_at: sentAt,
+  };
+}
+
+const NotificationModel = {
+  async createNotification(payload) {
+    const row = normalizeNotificationPayload(payload);
+
     const { data, error } = await supabaseAdmin
       .from("notifications")
-      .insert({
-        user_id: userId,
-        title,
-        message,
-        type,
-        reference_type: referenceType,
-        reference_id: referenceId,
-      })
+      .insert(row)
       .select("*")
       .single();
 
@@ -76,11 +58,13 @@ const NotificationModel = {
   },
 
   async createBulkNotifications(notifications = []) {
-    if (!notifications.length) return [];
+    if (!Array.isArray(notifications) || notifications.length === 0) return [];
+
+    const rows = notifications.map(normalizeNotificationPayload);
 
     const { data, error } = await supabaseAdmin
       .from("notifications")
-      .insert(notifications)
+      .insert(rows)
       .select("*");
 
     if (error) throw error;
@@ -88,12 +72,18 @@ const NotificationModel = {
     return data || [];
   },
 
-  async getUserNotifications(userId) {
+  async getUserNotifications(userId, { limit = DEFAULT_PAGE_SIZE, offset = 0 } = {}) {
+    if (!userId) throw new Error("userId is required.");
+
+    const safeLimit = normalizeLimit(limit);
+    const safeOffset = Math.max(Number(offset || 0), 0);
+
     const { data, error } = await supabaseAdmin
       .from("notifications")
       .select("*")
       .eq("user_id", userId)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .range(safeOffset, safeOffset + safeLimit - 1);
 
     if (error) throw error;
 
@@ -101,6 +91,8 @@ const NotificationModel = {
   },
 
   async getUnreadCount(userId) {
+    if (!userId) throw new Error("userId is required.");
+
     const { count, error } = await supabaseAdmin
       .from("notifications")
       .select("id", {
@@ -116,6 +108,9 @@ const NotificationModel = {
   },
 
   async markAsRead(notificationId, userId) {
+    if (!notificationId) throw new Error("notificationId is required.");
+    if (!userId) throw new Error("userId is required.");
+
     const { data, error } = await supabaseAdmin
       .from("notifications")
       .update({
@@ -133,6 +128,8 @@ const NotificationModel = {
   },
 
   async markAllAsRead(userId) {
+    if (!userId) throw new Error("userId is required.");
+
     const { error } = await supabaseAdmin
       .from("notifications")
       .update({
@@ -141,6 +138,30 @@ const NotificationModel = {
       })
       .eq("user_id", userId)
       .eq("is_read", false);
+
+    if (error) throw error;
+
+    return true;
+  },
+
+  async updateDeliveryStatus(notificationIds = [], deliveryStatus = "sent") {
+    const ids = [...new Set(notificationIds.filter(Boolean))];
+
+    if (!ids.length) return false;
+
+    const payload = {
+      delivery_status: deliveryStatus,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (deliveryStatus === "sent") {
+      payload.sent_at = new Date().toISOString();
+    }
+
+    const { error } = await supabaseAdmin
+      .from("notifications")
+      .update(payload)
+      .in("id", ids);
 
     if (error) throw error;
 

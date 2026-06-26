@@ -1,4 +1,4 @@
-const { sendPushToUsers } = require("./notification.service");
+const { notifyUsers } = require("./notification.service");
 
 const NOTIFICATION_TYPES = {
   BOOKING_CREATED: "booking_created",
@@ -10,89 +10,147 @@ const NOTIFICATION_TYPES = {
   REWARD_EARNED: "reward_earned",
 };
 
-async function notifyBookingCreated({ passengerId, driverId, bookingId, rideId }) {
-  await Promise.all([
-    sendPushToUsers({
-      userIds: [passengerId],
-      title: "Booking Confirmed",
-      body: "Your seat reservation has been successfully booked.",
-      data: {
-        screen: "booking",
-        bookingId,
-        rideId,
-        type: NOTIFICATION_TYPES.BOOKING_CREATED,
-      },
-    }),
+function uniqueIds(ids = []) {
+  return [...new Set(ids.filter(Boolean).map(String))];
+}
 
-    sendPushToUsers({
-      userIds: [driverId],
-      title: "New Booking Request",
-      body: "A passenger booked a seat on your ride.",
-      data: {
-        screen: "driver_booking",
-        bookingId,
-        rideId,
+async function notifyBookingCreated({
+  passengerId,
+  driverId,
+  bookingId,
+  rideId,
+  passengerName = "A passenger",
+  from,
+  to,
+}) {
+  const tasks = [];
+
+  if (driverId) {
+    tasks.push(
+      notifyUsers({
+        userIds: [driverId],
+        title: "New Booking Request",
+        body: `${passengerName} booked your ride. Review and accept the request.`,
         type: NOTIFICATION_TYPES.BOOKING_CREATED,
-      },
-    }),
-  ]);
+        referenceType: "booking",
+        referenceId: bookingId,
+        data: {
+          screen: "driver-ride",
+          bookingId,
+          rideId,
+          from,
+          to,
+        },
+        priority: "high",
+        saveHistory: true,
+      }),
+    );
+  }
+
+  if (passengerId) {
+    tasks.push(
+      notifyUsers({
+        userIds: [passengerId],
+        title: "Booking Requested",
+        body: "Your booking request was sent. Waiting for driver confirmation.",
+        type: NOTIFICATION_TYPES.BOOKING_CREATED,
+        referenceType: "booking",
+        referenceId: bookingId,
+        data: {
+          screen: "booking",
+          bookingId,
+          rideId,
+          from,
+          to,
+        },
+        priority: "normal",
+        saveHistory: true,
+      }),
+    );
+  }
+
+  return Promise.allSettled(tasks);
 }
 
 async function notifyBookingAccepted({ passengerId, bookingId, rideId }) {
-  return sendPushToUsers({
+  if (!passengerId) return null;
+
+  return notifyUsers({
     userIds: [passengerId],
     title: "Booking Accepted",
     body: "Your booking has been accepted by the driver.",
+    type: NOTIFICATION_TYPES.BOOKING_ACCEPTED,
+    referenceType: "booking",
+    referenceId: bookingId,
     data: {
       screen: "booking",
       bookingId,
       rideId,
-      type: NOTIFICATION_TYPES.BOOKING_ACCEPTED,
     },
+    priority: "high",
+    saveHistory: true,
   });
 }
 
 async function notifyBookingRejected({ passengerId, bookingId, rideId }) {
-  return sendPushToUsers({
+  if (!passengerId) return null;
+
+  return notifyUsers({
     userIds: [passengerId],
     title: "Booking Rejected",
     body: "Your booking was not accepted by the driver.",
+    type: NOTIFICATION_TYPES.BOOKING_REJECTED,
+    referenceType: "booking",
+    referenceId: bookingId,
     data: {
       screen: "booking",
       bookingId,
       rideId,
-      type: NOTIFICATION_TYPES.BOOKING_REJECTED,
     },
+    priority: "normal",
+    saveHistory: true,
   });
 }
 
 async function notifyRideStarted({ passengerIds = [], driverId, rideId }) {
-  const userIds = [...new Set([...passengerIds, driverId].filter(Boolean))];
+  const userIds = uniqueIds([...passengerIds, driverId]);
 
-  return sendPushToUsers({
+  if (!userIds.length) return null;
+
+  return notifyUsers({
     userIds,
     title: "Ride Started",
     body: "Your ride has started. Travel safely.",
+    type: NOTIFICATION_TYPES.RIDE_STARTED,
+    referenceType: "ride",
+    referenceId: rideId,
     data: {
       screen: "ride",
       rideId,
-      type: NOTIFICATION_TYPES.RIDE_STARTED,
     },
+    priority: "high",
+    saveHistory: true,
   });
 }
 
 async function notifyRideCompleted({ passengerIds = [], driverId, rideId }) {
-  const userIds = [...new Set([...passengerIds, driverId].filter(Boolean))];
+  const userIds = uniqueIds([...passengerIds, driverId]);
 
-  return sendPushToUsers({
+  if (!userIds.length) return null;
+
+  return notifyUsers({
     userIds,
     title: "Ride Completed",
     body: "Your ride has been completed successfully.",
+    type: NOTIFICATION_TYPES.RIDE_COMPLETED,
+    referenceType: "ride",
+    referenceId: rideId,
     data: {
       screen: "ride",
       rideId,
-      type: NOTIFICATION_TYPES.RIDE_COMPLETED,
     },
+    priority: "normal",
+    saveHistory: true,
   });
 }
 
@@ -103,31 +161,98 @@ async function notifyIncomingMessage({
   bookingId,
   rideId,
 }) {
-  return sendPushToUsers({
+  if (!receiverId) return null;
+
+  return notifyUsers({
     userIds: [receiverId],
-    title: senderName || "New Message",
+    title: senderName ? `Message from ${senderName}` : "New Message",
     body: "You have a new ride message.",
+    type: NOTIFICATION_TYPES.MESSAGE_RECEIVED,
+    referenceType: "chat_room",
+    referenceId: roomId,
     data: {
       screen: "chat",
       roomId,
       bookingId,
       rideId,
-      type: NOTIFICATION_TYPES.MESSAGE_RECEIVED,
+      title: senderName || "Chat",
     },
+    priority: "high",
+    saveHistory: true,
   });
 }
 
 async function notifyRewardEarned({ userId, points, rideId }) {
-  return sendPushToUsers({
+  if (!userId) return null;
+
+  return notifyUsers({
     userIds: [userId],
     title: "Reward Points Added",
     body: `You earned ${points} reward points.`,
+    type: NOTIFICATION_TYPES.REWARD_EARNED,
+    referenceType: "reward",
+    referenceId: rideId || null,
     data: {
       screen: "rewards",
       rideId,
-      type: NOTIFICATION_TYPES.REWARD_EARNED,
+      points,
     },
+    priority: "normal",
+    saveHistory: true,
   });
+}
+
+async function notifyBookingCancelled({
+  passengerId,
+  driverId,
+  bookingId,
+  rideId,
+}) {
+  const tasks = [];
+
+  if (passengerId) {
+    tasks.push(
+      notifyUsers({
+        userIds: [passengerId],
+        title: "Booking Cancelled",
+        body: "Your booking has been cancelled successfully.",
+        type: "booking_cancelled",
+        referenceType: "booking",
+        referenceId: bookingId,
+        data: {
+          screen: "booking",
+          bookingId,
+          rideId,
+          status: "cancelled",
+        },
+        priority: "normal",
+        saveHistory: true,
+      }),
+    );
+  }
+
+  if (driverId) {
+    tasks.push(
+      notifyUsers({
+        userIds: [driverId],
+        title: "Passenger Cancelled Booking",
+        body: "A passenger cancelled their booking on your ride.",
+        type: "booking_cancelled",
+        referenceType: "booking",
+        referenceId: bookingId,
+        data: {
+          screen: "driver-ride",
+          bookingId,
+          rideId,
+          status: "cancelled",
+        },
+        priority: "normal",
+        saveHistory: true,
+      }),
+    );
+  }
+
+  return Promise.allSettled(tasks);
 }
 
 module.exports = {
@@ -139,4 +264,5 @@ module.exports = {
   notifyRideCompleted,
   notifyIncomingMessage,
   notifyRewardEarned,
+  notifyBookingCancelled
 };

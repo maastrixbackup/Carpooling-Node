@@ -111,26 +111,27 @@ const createBooking = async (req, res) => {
 
     const passengerName = getDisplayName(req.user);
 
-    // const room = await ChatModel.createRoom(supabaseAdmin, {
-    //   bookingId: booking.id,
-    //   rideId: ride.id,
-    //   passengerId: req.user.id,
-    //   driverId: ride.driver_id,
-    // });
-    try {
-      await NotificationEventService.notifyBookingCreated({
-        passengerId: req.user.id,
-        driverId: ride.driver_id,
-        bookingId: booking.id,
-        rideId: ride.id,
-      });
-    } catch (error) {
-      console.error(
-        "[NOTIFICATION ERROR] Booking created:",
-        error?.message || error,
-      );
-    }
-    
+    setImmediate(async () => {
+      try {
+        await NotificationEventService.notifyBookingCreated({
+          passengerId: req.user.id,
+          driverId: ride.driver_id,
+          bookingId: booking.id,
+          rideId: ride.id,
+          passengerName,
+          from: ride.source_address,
+          to: ride.destination_address,
+        });
+      } catch (notifyError) {
+        console.error("[NOTIFICATION ERROR] Booking created:", {
+          message: notifyError?.message,
+          code: notifyError?.code,
+          details: notifyError?.details,
+          stack: notifyError?.stack,
+        });
+      }
+    });
+
     return res.status(201).json({
       success: true,
       message: "Booking created successfully.",
@@ -383,19 +384,33 @@ const respondToBooking = async (req, res) => {
           driverId: booking.rides.driver_id,
         });
       }
-
-      await sendPushToUsers({
-        userIds: [booking.passenger_id],
-        title: "Ride Accepted",
-        body: "Your booking has been accepted. You can now chat with the driver.",
-        data: {
-          screen: "booking",
-          bookingId: booking.id,
-          roomId: chatRoom.id,
-          type: "booking_accepted",
-        },
-      });
     }
+
+    setImmediate(async () => {
+      try {
+        if (status === "accepted") {
+          await NotificationEventService.notifyBookingAccepted({
+            passengerId: booking.passenger_id,
+            bookingId: booking.id,
+            rideId: booking.ride_id,
+            roomId: chatRoom?.id,
+          });
+        } else {
+          await NotificationEventService.notifyBookingRejected({
+            passengerId: booking.passenger_id,
+            bookingId: booking.id,
+            rideId: booking.ride_id,
+          });
+        }
+      } catch (notifyError) {
+        console.error("[NOTIFICATION ERROR]", {
+          event: `booking_${status}`,
+          bookingId: booking.id,
+          message: notifyError?.message,
+          stack: notifyError?.stack,
+        });
+      }
+    });
 
     if (status === "rejected") {
       await RideModel.increaseAvailableSeats(
@@ -403,17 +418,6 @@ const respondToBooking = async (req, res) => {
         booking.ride_id,
         booking.seats,
       );
-
-      await sendPushToUsers({
-        userIds: [booking.passenger_id],
-        title: "Ride Request Rejected",
-        body: "Your ride booking request was rejected by the driver.",
-        data: {
-          screen: "booking",
-          bookingId: booking.id,
-          type: "booking_rejected",
-        },
-      });
     }
 
     return res.status(200).json({
@@ -480,6 +484,23 @@ const cancelBooking = async (req, res) => {
         booking.ride_id,
         booking.seats,
       );
+
+      setImmediate(async () => {
+        try {
+          await NotificationEventService.notifyBookingCancelled({
+            passengerId: booking.passenger_id,
+            driverId: booking.rides?.driver_id,
+            bookingId: booking.id,
+            rideId: booking.ride_id,
+          });
+        } catch (notifyError) {
+          console.error("[NOTIFICATION ERROR] Booking cancelled:", {
+            bookingId: booking.id,
+            message: notifyError?.message,
+            stack: notifyError?.stack,
+          });
+        }
+      });
     }
 
     return res.status(200).json({
