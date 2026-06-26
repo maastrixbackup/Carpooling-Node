@@ -218,7 +218,7 @@ const sendMessage = async (req, res) => {
         : room.driver_id;
 
     const senderName =
-      req.user?.full_name ||
+      req.user?.full_name || req.user?.name
       req.user?.user_metadata?.full_name ||
       req.user?.email ||
       "User";
