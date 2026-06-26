@@ -1,5 +1,6 @@
 const ChatModel = require("../../models/chat/chat.model");
 const { supabaseAdmin } = require("../../config/supabase");
+const NotificationEventService = require("../../services/notification-event.service")
 
 const getMyRooms = async (req, res) => {
   try {
