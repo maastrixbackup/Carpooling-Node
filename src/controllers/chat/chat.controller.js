@@ -1,5 +1,6 @@
 const ChatModel = require("../../models/chat/chat.model");
 const { supabaseAdmin } = require("../../config/supabase");
+const NotificationEventService = require("../../services/notification-event.service")
 
 const getMyRooms = async (req, res) => {
   try {
@@ -210,7 +211,36 @@ const sendMessage = async (req, res) => {
     });
 
     req.io.to(`room-${room.id}`).emit("new_message", newMessage);
-    
+
+    const receiverId =
+      String(room.driver_id) === String(req.user.id)
+        ? room.passenger_id
+        : room.driver_id;
+
+    const senderName =
+      req.user?.full_name || req.user?.name
+      req.user?.user_metadata?.full_name ||
+      req.user?.email ||
+      "User";
+
+    setImmediate(async () => {
+      try {
+        await NotificationEventService.notifyIncomingMessage({
+          receiverId,
+          senderName,
+          roomId: room.id,
+          bookingId: room.booking_id,
+          rideId: room.ride_id,
+        });
+      } catch (notifyError) {
+        console.error("[NOTIFICATION ERROR] Incoming message:", {
+          roomId: room.id,
+          receiverId,
+          message: notifyError?.message,
+          stack: notifyError?.stack,
+        });
+      }
+    });
 
     return res.status(201).json({
       success: true,

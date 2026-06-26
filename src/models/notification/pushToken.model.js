@@ -123,25 +123,27 @@ const PushTokenModel = {
       .in("id", ids);
 
     if (error) throw error;
-
     if (!tokens?.length) return;
 
     const now = new Date().toISOString();
 
-    const updates = tokens.map((token) => ({
-      id: token.id,
-      notifications_received: Number(token.notifications_received || 0) + 1,
-      last_used_at: now,
-      updated_at: now,
-    }));
+    const results = await Promise.all(
+      tokens.map((token) =>
+        supabaseAdmin
+          .from("user_push_tokens")
+          .update({
+            notifications_received:
+              Number(token.notifications_received || 0) + 1,
+            last_used_at: now,
+            updated_at: now,
+          })
+          .eq("id", token.id),
+      ),
+    );
 
-    const { error: updateError } = await supabaseAdmin
-      .from("user_push_tokens")
-      .upsert(updates, {
-        onConflict: "id",
-      });
+    const failed = results.find((result) => result.error);
 
-    if (updateError) throw updateError;
+    if (failed?.error) throw failed.error;
   },
 
   async incrementReceived(userId) {

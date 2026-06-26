@@ -8,8 +8,7 @@ const { supabaseAdmin } = require("../config/supabase");
 const { incrementUserTotalRides } = require("../utils/user-stats.helper");
 const RewardService = require("../services/reward.service");
 const { logError } = require("../utils/logger");
-const NotificationEventService = require("../services/notification-event.service")
-
+const NotificationEventService = require("../services/notification-event.service");
 
 const createRide = async (req, res) => {
   try {
@@ -302,10 +301,26 @@ const getMyRides = async (req, res) => {
 
 const cancelRide = async (req, res) => {
   try {
+    const rideId = req.params.id;
+    const driverId = req.user.id;
+
+    const ride = await RideModel.findDriverRideById(
+      supabaseAdmin,
+      rideId,
+      driverId,
+    );
+
+    if (!ride) {
+      return res.status(404).json({
+        success: false,
+        message: "Ride not found or not owned by you.",
+      });
+    }
+
     const updated = await RideModel.updateStatus(
       supabaseAdmin,
-      req.params.id,
-      req.user.id,
+      rideId,
+      driverId,
       "cancelled",
     );
 
@@ -315,6 +330,43 @@ const cancelRide = async (req, res) => {
         message: "Ride not found or not owned by you.",
       });
     }
+
+    setImmediate(async () => {
+      try {
+        const bookings = await BookingModel.findByDriver(supabaseAdmin, {
+          driverId,
+          rideId,
+        });
+
+        const passengerIds = [
+          ...new Set(
+            bookings
+              .filter((booking) =>
+                ["accepted", "ongoing", "payment_confirmed"].includes(
+                  String(booking.status).toLowerCase(),
+                ),
+              )
+              .map((booking) => booking.passenger_id)
+              .filter(Boolean)
+              .map(String),
+          ),
+        ];
+
+        await NotificationEventService.notifyRideCancelled({
+          driverId,
+          passengerIds,
+          rideId,
+          from: ride.source_address,
+          to: ride.destination_address,
+        });
+      } catch (notifyError) {
+        console.error("[NOTIFICATION ERROR] Ride cancelled:", {
+          rideId,
+          message: notifyError?.message,
+          stack: notifyError?.stack,
+        });
+      }
+    });
 
     return res.status(200).json({
       success: true,
@@ -511,11 +563,10 @@ const updateRide = async (req, res) => {
 
 const startRide = async (req, res) => {
   try {
-    const result = await RideModel.startRide(
-      supabaseAdmin,
-      req.params.id,
-      req.user.id,
-    );
+    const rideId = req.params.id;
+    const driverId = req.user.id;
+
+    const result = await RideModel.startRide(supabaseAdmin, rideId, driverId);
 
     if (!result.success) {
       const messages = {
@@ -531,6 +582,44 @@ const startRide = async (req, res) => {
         reason: result.reason,
       });
     }
+
+    setImmediate(async () => {
+      try {
+        const ride = await RideModel.findDriverRideById(
+          supabaseAdmin,
+          rideId,
+          driverId,
+        );
+
+        const bookings = await BookingModel.findByDriver(supabaseAdmin, {
+          driverId,
+          rideId,
+        });
+
+        const passengerIds = bookings
+          .filter((booking) =>
+            ["accepted", "payment_confirmed", "ongoing"].includes(
+              String(booking.status).toLowerCase(),
+            ),
+          )
+          .map((booking) => booking.passenger_id)
+          .filter(Boolean);
+
+        await NotificationEventService.notifyRideStarted({
+          driverId,
+          passengerIds,
+          rideId,
+          from: ride?.source_address,
+          to: ride?.destination_address,
+        });
+      } catch (notifyError) {
+        console.error("[NOTIFICATION ERROR] Ride started:", {
+          rideId,
+          message: notifyError?.message,
+          stack: notifyError?.stack,
+        });
+      }
+    });
 
     return res.status(200).json({
       success: true,
@@ -611,19 +700,25 @@ const completeRide = async (req, res) => {
       bookings: eligibleBookings,
     });
 
-    try {
-      await NotificationEventService.notifyRideCompleted({
-        driverId: ride.driver_id || driverId,
-        passengerIds,
-        rideId: ride.id || rideId,
-      });
-    } catch (notifyError) {
-      console.error("[NOTIFICATION ERROR] Ride completed:", {
-        message: notifyError?.message,
-        details: notifyError?.details,
-        code: notifyError?.code,
-      });
-    }
+    setImmediate(async () => {
+      try {
+        await NotificationEventService.notifyRideCompleted({
+          driverId: ride.driver_id || driverId,
+          passengerIds,
+          rideId: ride.id || rideId,
+          from: ride.source_address,
+          to: ride.destination_address,
+        });
+      } catch (notifyError) {
+        console.error("[NOTIFICATION ERROR] Ride completed:", {
+          rideId,
+          message: notifyError?.message,
+          details: notifyError?.details,
+          code: notifyError?.code,
+          stack: notifyError?.stack,
+        });
+      }
+    });
 
     return res.status(200).json({
       success: true,
