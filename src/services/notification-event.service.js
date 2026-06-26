@@ -312,5 +312,5 @@ module.exports = {
   notifyIncomingMessage,
   notifyRewardEarned,
   notifyBookingCancelled,
-  notifyRideCancelled
+  notifyRideCancelled,
 };
