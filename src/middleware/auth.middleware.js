@@ -1,4 +1,7 @@
-const { createUserSupabaseClient, supabaseAdmin } = require("../config/supabase");
+const {
+  createUserSupabaseClient,
+  supabaseAdmin,
+} = require("../config/supabase");
 
 const supabaseAuthMiddleware = async (req, res, next) => {
   try {
@@ -25,12 +28,32 @@ const supabaseAuthMiddleware = async (req, res, next) => {
       });
     }
 
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from("user_details")
+      .select(
+        `
+    full_name,
+    profile_picture,
+    is_verified,
+    rating,
+    total_rides
+  `,
+      )
+      .eq("id", user.id)
+      .single();
+
     req.user = {
       id: user.id,
       email: user.email,
       phone: user.phone,
       metadata: user.user_metadata || {},
       appMetadata: user.app_metadata || {},
+
+      full_name: profile?.full_name,
+      profile_picture: profile?.profile_picture,
+      is_verified: profile?.is_verified,
+      rating: profile?.rating,
+      total_rides: profile?.total_rides,
     };
 
     req.supabase = createUserSupabaseClient(token);
