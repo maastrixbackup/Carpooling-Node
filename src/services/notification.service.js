@@ -5,7 +5,6 @@ const NotificationSettingsModel = require("../models/notification/notificationSe
 
 const getSettingKeyByType = (type = "") => {
   const value = String(type).toLowerCase();
-
   if (value.includes("booking")) return "booking_alerts";
   if (value.includes("ride")) return "ride_alerts";
   if (value.includes("message") || value.includes("chat")) return "chat_alerts";
