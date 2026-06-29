@@ -10,16 +10,32 @@ const isAdminUser = (req) => {
   return role === "admin";
 };
 
+const logControllerError = (label, error) => {
+  console.error(`[ERROR] ${label}:`, {
+    message: error?.message,
+    details: error?.details,
+    hint: error?.hint,
+    code: error?.code,
+    stack: error?.stack,
+  });
+};
+
 const broadcastNotification = async (req, res) => {
   try {
-    // if (!isAdminUser(req)) {
-    //   return res.status(403).json({
-    //     success: false,
-    //     message: "Admin access required.",
-    //   });
-    // }
+    if (!isAdminUser(req)) {
+      return res.status(403).json({
+        success: false,
+        message: "Admin access required.",
+      });
+    }
 
-    const { title, body, data } = req.body;
+    const {
+      title,
+      body,
+      type = "broadcast",
+      data = {},
+      priority = "normal",
+    } = req.body || {};
 
     if (!title || !body) {
       return res.status(400).json({
@@ -28,10 +44,12 @@ const broadcastNotification = async (req, res) => {
       });
     }
 
-    const result = await NotificationService.broadcastPush({
+    const result = await NotificationService.broadcast({
       title,
       body,
-      data: data || {},
+      type,
+      data,
+      priority,
     });
 
     return res.status(200).json({
@@ -40,7 +58,7 @@ const broadcastNotification = async (req, res) => {
       data: result,
     });
   } catch (error) {
-    console.error("[ERROR] Broadcast notification:", error?.message || error);
+    logControllerError("Broadcast notification", error);
 
     return res.status(500).json({
       success: false,
@@ -58,7 +76,16 @@ const sendNotificationToUsers = async (req, res) => {
       });
     }
 
-    const { user_ids, title, body, data } = req.body;
+    const {
+      user_ids,
+      title,
+      body,
+      type = "manual",
+      reference_type = null,
+      reference_id = null,
+      data = {},
+      priority = "normal",
+    } = req.body || {};
 
     if (!Array.isArray(user_ids) || user_ids.length === 0 || !title || !body) {
       return res.status(400).json({
@@ -67,11 +94,16 @@ const sendNotificationToUsers = async (req, res) => {
       });
     }
 
-    const result = await NotificationService.sendPushToUsers({
+    const result = await NotificationService.notifyUsers({
       userIds: user_ids,
       title,
       body,
-      data: data || {},
+      type,
+      referenceType: reference_type,
+      referenceId: reference_id,
+      data,
+      priority,
+      saveHistory: true,
     });
 
     return res.status(200).json({
@@ -80,7 +112,7 @@ const sendNotificationToUsers = async (req, res) => {
       data: result,
     });
   } catch (error) {
-    console.error("[ERROR] Send notification:", error?.message || error);
+    logControllerError("Send notification", error);
 
     return res.status(500).json({
       success: false,
@@ -91,14 +123,15 @@ const sendNotificationToUsers = async (req, res) => {
 
 const getMyNotifications = async (req, res) => {
   try {
-    const notifications = await NotificationModel.getUserNotifications(
-      req.user.id,
-    );
+    const result = await NotificationModel.getUserNotifications(req.user.id, {
+      page: req.query.page || 1,
+      limit: req.query.limit || 5,
+    });
 
     return res.status(200).json({
       success: true,
       message: "Notifications fetched successfully.",
-      data: { notifications },
+      data: result,
     });
   } catch (error) {
     console.error("[ERROR] Get notifications:", error?.message || error);
@@ -106,6 +139,34 @@ const getMyNotifications = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Something went wrong while fetching notifications.",
+    });
+  }
+};
+
+const deleteNotification = async (req, res) => {
+  try {
+    const deleted = await NotificationModel.deleteNotification(
+      req.params.id,
+      req.user.id,
+    );
+
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        message: "Notification not found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Notification deleted successfully.",
+    });
+  } catch (error) {
+    console.error("[ERROR] Delete notification:", error?.message || error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong while deleting notification.",
     });
   }
 };
@@ -120,7 +181,7 @@ const getUnreadCount = async (req, res) => {
       data: { unread_count },
     });
   } catch (error) {
-    console.error("[ERROR] Get unread count:", error?.message || error);
+    logControllerError("Get unread count", error);
 
     return res.status(500).json({
       success: false,
@@ -148,7 +209,7 @@ const markNotificationAsRead = async (req, res) => {
       message: "Notification marked as read.",
     });
   } catch (error) {
-    console.error("[ERROR] Mark notification read:", error?.message || error);
+    logControllerError("Mark notification read", error);
 
     return res.status(500).json({
       success: false,
@@ -166,7 +227,7 @@ const markAllNotificationsAsRead = async (req, res) => {
       message: "All notifications marked as read.",
     });
   } catch (error) {
-    console.error("[ERROR] Mark all notifications read:", error?.message || error);
+    logControllerError("Mark all notifications read", error);
 
     return res.status(500).json({
       success: false,
@@ -182,4 +243,5 @@ module.exports = {
   getUnreadCount,
   markNotificationAsRead,
   markAllNotificationsAsRead,
+  deleteNotification
 };
