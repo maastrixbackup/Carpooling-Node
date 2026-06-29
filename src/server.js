@@ -15,6 +15,7 @@ const reviewRoutes = require("./routes/review.routes");
 const userRoutes = require("./routes/user.routes");
 const pushTokenRoutes = require("./routes/notification/pushToken.routes");
 const notificationRoutes = require("./routes/notification/notification.routes");
+const notificationSettingsRoutes = require("./routes/notification/notificationSettings.routes");
 const chatRoutes = require("./routes/chat/chat.routes")
 const verificationRoutes = require("./routes/verification.routes")
 const rewardRoutes = require("./routes/reward.route")
@@ -75,6 +76,7 @@ app.use("/api/reviews", reviewRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/push-tokens", pushTokenRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/notifications/settings", notificationSettingsRoutes);
 app.use("/api/chats", chatRoutes);
 app.use("/api/verification", verificationRoutes);
 app.use("/api/rewards", rewardRoutes);

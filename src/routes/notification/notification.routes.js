@@ -11,4 +11,6 @@ const {
 router.post("/broadcast",  broadcastNotification);
 router.post("/send", authMiddleware, sendNotificationToUsers);
 
+
+
 module.exports = router;
