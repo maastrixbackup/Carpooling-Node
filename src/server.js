@@ -15,14 +15,13 @@ const reviewRoutes = require("./routes/review.routes");
 const userRoutes = require("./routes/user.routes");
 const pushTokenRoutes = require("./routes/notification/pushToken.routes");
 const notificationRoutes = require("./routes/notification/notification.routes");
-const chatRoutes = require("./routes/chat/chat.routes");
-const verificationRoutes = require("./routes/verification.routes");
-const rewardRoutes = require("./routes/reward.route");
+const notificationSettingsRoutes = require("./routes/notification/notificationSettings.routes");
+const chatRoutes = require("./routes/chat/chat.routes")
+const verificationRoutes = require("./routes/verification.routes")
+const rewardRoutes = require("./routes/reward.route")
 const supportRoutes = require("./routes/support.routes");
 const accountRoutes = require("./routes/account.routes");
 const { errorHandler } = require("./middleware/error.middleware");
-const registerRideTrackingSocket = require("./sockets/rideTracking.socket");
-const { supabaseAdmin } = require("./config/supabase");
 
 const app = express();
 
@@ -37,36 +36,6 @@ const io = new Server(server, {
 
 app.set("io", io);
 
-io.use(async (socket, next) => {
-  try {
-    const token = socket.handshake.auth?.token;
-
-    if (!token) {
-      return next(new Error("Unauthorized socket."));
-    }
-
-    const {
-      data: { user },
-      error,
-    } = await supabaseAdmin.auth.getUser(token);
-
-    if (error || !user) {
-      return next(new Error("Invalid socket token."));
-    }
-
-    socket.user = {
-      id: user.id,
-      email: user.email,
-      metadata: user.user_metadata || {},
-      appMetadata: user.app_metadata || {},
-    };
-
-    next();
-  } catch (error) {
-    next(new Error("Socket authentication failed."));
-  }
-});
-
 io.on("connection", (socket) => {
   console.log("Socket connected:", socket.id);
   socket.on("join_room", (roomId) => {
@@ -79,8 +48,6 @@ io.on("connection", (socket) => {
     console.log("Socket disconnected:", socket.id);
   });
 });
-
-registerRideTrackingSocket(io);
 
 app.use((req, res, next) => {
   req.io = io;
@@ -113,11 +80,13 @@ app.use("/api/reviews", reviewRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/push-tokens", pushTokenRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/notifications/settings", notificationSettingsRoutes);
 app.use("/api/chats", chatRoutes);
 app.use("/api/verification", verificationRoutes);
 app.use("/api/rewards", rewardRoutes);
 app.use("/api/support", supportRoutes);
 app.use("/api/account", accountRoutes);
+
 
 app.use(errorHandler);
 
