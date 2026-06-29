@@ -72,7 +72,10 @@ const NotificationModel = {
     return data || [];
   },
 
-  async getUserNotifications(userId, { limit = DEFAULT_PAGE_SIZE, offset = 0 } = {}) {
+  async getUserNotifications(
+    userId,
+    { limit = DEFAULT_PAGE_SIZE, offset = 0 } = {},
+  ) {
     if (!userId) throw new Error("userId is required.");
 
     const safeLimit = normalizeLimit(limit);
@@ -166,6 +169,43 @@ const NotificationModel = {
     if (error) throw error;
 
     return true;
+  },
+
+  async getUserNotifications(userId, { page = 1, limit = 5 } = {}) {
+    const from = (Number(page) - 1) * Number(limit);
+    const to = from + Number(limit) - 1;
+
+    const { data, error, count } = await supabaseAdmin
+      .from("notifications")
+      .select("*", { count: "exact" })
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .range(from, to);
+
+    if (error) throw error;
+
+    return {
+      notifications: data || [],
+      pagination: {
+        page: Number(page),
+        limit: Number(limit),
+        total: count || 0,
+      },
+    };
+  },
+
+  async deleteNotification(notificationId, userId) {
+    const { data, error } = await supabaseAdmin
+      .from("notifications")
+      .delete()
+      .eq("id", notificationId)
+      .eq("user_id", userId)
+      .select("id")
+      .maybeSingle();
+
+    if (error) throw error;
+
+    return !!data;
   },
 };
 

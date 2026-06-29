@@ -60,7 +60,7 @@ app.use(express.json());
 app.use(morgan("dev"));
 
 // routes...
-app.get("/", (req, res) => {
+app.get("/health", (req, res) => {
   res.json({
     success: true,
     message: "Car Pooling API running",
