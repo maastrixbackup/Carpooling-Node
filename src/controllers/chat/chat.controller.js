@@ -1,6 +1,6 @@
 const ChatModel = require("../../models/chat/chat.model");
 const { supabaseAdmin } = require("../../config/supabase");
-const NotificationEventService = require("../../services/notification-event.service")
+const NotificationEventService = require("../../services/notification-event.service");
 
 const getMyRooms = async (req, res) => {
   try {
@@ -217,11 +217,8 @@ const sendMessage = async (req, res) => {
         ? room.passenger_id
         : room.driver_id;
 
-    const senderName =
-      req.user?.full_name || req.user?.name
-      req.user?.user_metadata?.full_name ||
-      req.user?.email ||
-      "User";
+    const senderName = req.user?.full_name || req.user?.name;
+    req.user?.user_metadata?.full_name || req.user?.email || "User";
 
     setImmediate(async () => {
       try {
