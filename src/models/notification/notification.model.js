@@ -171,7 +171,7 @@ const NotificationModel = {
     return true;
   },
 
-  async getUserNotifications(userId, { page = 1, limit = 20 } = {}) {
+  async getUserNotifications(userId, { page = 1, limit = 5 } = {}) {
     const from = (Number(page) - 1) * Number(limit);
     const to = from + Number(limit) - 1;
 

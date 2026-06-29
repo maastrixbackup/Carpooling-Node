@@ -13,7 +13,7 @@ const {
 router.post("/broadcast",  broadcastNotification);
 router.post("/send", authMiddleware, sendNotificationToUsers);
 router.get("/", authMiddleware, getMyNotifications);
-router.delete("/:id", authMiddleware, deleteNotification);
+// router.delete("/:id", authMiddleware, deleteNotification);
 
 
 module.exports = router;

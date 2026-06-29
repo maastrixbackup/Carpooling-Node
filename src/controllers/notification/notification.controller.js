@@ -125,7 +125,7 @@ const getMyNotifications = async (req, res) => {
   try {
     const result = await NotificationModel.getUserNotifications(req.user.id, {
       page: req.query.page || 1,
-      limit: req.query.limit || 20,
+      limit: req.query.limit || 5,
     });
 
     return res.status(200).json({
