@@ -123,35 +123,50 @@ const sendNotificationToUsers = async (req, res) => {
 
 const getMyNotifications = async (req, res) => {
   try {
-    const limit = req.query.limit || 30;
-    const offset = req.query.offset || 0;
-
-    const notifications = await NotificationModel.getUserNotifications(
-      req.user.id,
-      { limit, offset },
-    );
-
-    const unread_count = await NotificationModel.getUnreadCount(req.user.id);
+    const result = await NotificationModel.getUserNotifications(req.user.id, {
+      page: req.query.page || 1,
+      limit: req.query.limit || 5,
+    });
 
     return res.status(200).json({
       success: true,
       message: "Notifications fetched successfully.",
-      data: {
-        notifications,
-        unread_count,
-        pagination: {
-          limit: Number(limit || 30),
-          offset: Number(offset || 0),
-          returned: notifications.length,
-        },
-      },
+      data: result,
     });
   } catch (error) {
-    logControllerError("Get notifications", error);
+    console.error("[ERROR] Get notifications:", error?.message || error);
 
     return res.status(500).json({
       success: false,
       message: "Something went wrong while fetching notifications.",
+    });
+  }
+};
+
+const deleteNotification = async (req, res) => {
+  try {
+    const deleted = await NotificationModel.deleteNotification(
+      req.params.id,
+      req.user.id,
+    );
+
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        message: "Notification not found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Notification deleted successfully.",
+    });
+  } catch (error) {
+    console.error("[ERROR] Delete notification:", error?.message || error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong while deleting notification.",
     });
   }
 };
@@ -228,4 +243,5 @@ module.exports = {
   getUnreadCount,
   markNotificationAsRead,
   markAllNotificationsAsRead,
+  deleteNotification
 };
