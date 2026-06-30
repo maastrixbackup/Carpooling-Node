@@ -1,147 +1,139 @@
-const { supabaseAdmin } = require("../config/supabase");
-const RideModel = require("../models/ride.model");
-const BookingModel = require("../models/booking.model");
-const RideLiveLocationModel = require("../models/rideLiveLocation.model");
+const RideTrackingService = require("../services/rideTracking.service");
 
-async function canJoinRideTracking({ rideId, userId }) {
-  const ride = typeof RideModel.findById === "function"
-      ? await RideModel.findById(supabaseAdmin, rideId)
-      : null;
-
-  if (ride && String(ride.driver_id) === String(userId)) {
-    return true;
-  }
-
-  const bookings = await BookingModel.findByPassenger(supabaseAdmin, userId);
-
-  return bookings.some(
-    (booking) =>
-      String(booking.rides?.id || booking.ride_id) === String(rideId) &&
-      ["accepted", "ongoing", "payment_confirmed", "completed"].includes(
-        String(booking.status).toLowerCase(),
-      ),
-  );
+function emitTrackingError(socket, reason, message) {
+  socket.emit("ride:tracking:error", {
+    reason,
+    message,
+  });
 }
 
 function registerRideTrackingSocket(io) {
   io.on("connection", (socket) => {
-    socket.on("ride:join", async ({ rideId }) => {
-      const userId = socket.user.id;
+    socket.on("ride:tracking:join", async ({ rideId }) => {
       try {
-        if (!rideId || !userId) return;
+        const userId = socket.user?.id;
 
-        const allowed = await canJoinRideTracking({ rideId, userId });
-
-        if (!allowed) {
-          socket.emit("ride:tracking:error", {
-            message: "You are not allowed to track this ride.",
-          });
+        if (!rideId || !userId) {
+          emitTrackingError(
+            socket,
+            "missing_required_fields",
+            "Ride tracking details are missing.",
+          );
           return;
         }
 
-        socket.join(`ride-${rideId}`);
-
-        const liveLocation = await RideLiveLocationModel.getByRideId(
-          supabaseAdmin,
+        const allowed = await RideTrackingService.canJoinRideTracking({
           rideId,
-        );
+          userId,
+        });
 
-        if (liveLocation?.status === "active") {
-          socket.emit("ride:location:broadcast", {
-            rideId,
-            driverId: liveLocation.driver_id,
-            latitude: Number(liveLocation.latitude),
-            longitude: Number(liveLocation.longitude),
-            heading: liveLocation.heading,
-            speed: liveLocation.speed,
-            accuracy: liveLocation.accuracy,
-            updatedAt: liveLocation.updated_at,
-          });
+        if (!allowed) {
+          emitTrackingError(
+            socket,
+            "access_denied",
+            "You are not allowed to track this ride.",
+          );
+          return;
+        }
+
+        socket.join(RideTrackingService.rideRoom(rideId));
+
+        socket.emit("ride:tracking:joined", {
+          rideId,
+          room: RideTrackingService.rideRoom(rideId),
+        });
+
+        const snapshot = await RideTrackingService.getSnapshot(rideId);
+
+        if (snapshot) {
+          socket.emit("ride:tracking:snapshot", snapshot);
         }
       } catch (error) {
-        console.error("[SOCKET] ride join error:", error?.message || error);
+        console.error("[SOCKET] ride tracking join error:", error?.message || error);
+
+        emitTrackingError(
+          socket,
+          "join_failed",
+          "Unable to join ride tracking.",
+        );
       }
     });
 
-    socket.on("ride:leave", ({ rideId }) => {
+    socket.on("ride:tracking:leave", ({ rideId }) => {
       if (!rideId) return;
-      socket.leave(`ride-${rideId}`);
+
+      socket.leave(RideTrackingService.rideRoom(rideId));
+
+      socket.emit("ride:tracking:left", {
+        rideId,
+      });
     });
 
-    socket.on("ride:location:update", async (payload) => {
+    socket.on("ride:tracking:update", async (payload = {}) => {
       try {
-        const { rideId, latitude, longitude, heading, speed, accuracy } =
-          payload || {};
-        const driverId = socket.user.id;
+        const driverId = socket.user?.id;
 
-        if (!rideId || !driverId || latitude == null || longitude == null) {
-          return;
-        }
-
-        const ride = await RideModel.findDriverRideById(
-          supabaseAdmin,
-          rideId,
+        const result = await RideTrackingService.updateDriverLocation({
+          payload,
           driverId,
-        );
-
-        if (!ride || ride.status !== "ongoing") {
-          return;
-        }
-
-        const liveLocation = await RideLiveLocationModel.upsertLocation(
-          supabaseAdmin,
-          {
-            rideId,
-            driverId,
-            latitude,
-            longitude,
-            heading,
-            speed,
-            accuracy,
-          },
-        );
-
-        io.to(`ride-${rideId}`).emit("ride:location:broadcast", {
-          rideId,
-          driverId,
-          latitude: Number(liveLocation.latitude),
-          longitude: Number(liveLocation.longitude),
-          heading: liveLocation.heading,
-          speed: liveLocation.speed,
-          accuracy: liveLocation.accuracy,
-          updatedAt: liveLocation.updated_at,
         });
+
+        if (!result.success) {
+          emitTrackingError(
+            socket,
+            result.reason,
+            "Unable to update live location.",
+          );
+          return;
+        }
+
+        io.to(RideTrackingService.rideRoom(result.data.rideId)).emit(
+          "ride:tracking:update",
+          result.data,
+        );
       } catch (error) {
         console.error(
-          "[SOCKET] ride location update error:",
+          "[SOCKET] ride tracking update error:",
           error?.message || error,
+        );
+
+        emitTrackingError(
+          socket,
+          "location_update_failed",
+          "Unable to update live location.",
         );
       }
     });
 
     socket.on("ride:tracking:stop", async ({ rideId }) => {
-      const driverId = socket.user.id;
       try {
-        if (!rideId || !driverId) return;
+        const driverId = socket.user?.id;
 
-        const ride = await RideModel.findDriverRideById(
-          supabaseAdmin,
+        const result = await RideTrackingService.stopTracking({
           rideId,
           driverId,
-        );
-
-        if (!ride) return;
-
-        await RideLiveLocationModel.stopTracking(supabaseAdmin, rideId);
-
-        io.to(`ride-${rideId}`).emit("ride:tracking:stopped", {
-          rideId,
-          status: "stopped",
         });
+
+        if (!result.success) {
+          emitTrackingError(
+            socket,
+            result.reason,
+            "Unable to stop ride tracking.",
+          );
+          return;
+        }
+
+        io.to(RideTrackingService.rideRoom(rideId)).emit(
+          "ride:tracking:stopped",
+          result.data,
+        );
       } catch (error) {
-        console.error(
-          "[SOCKET] ride tracking stop error:",
-          error?.message || error,
+        console.error("[SOCKET] ride tracking stop error:", error?.message || error);
+
+        emitTrackingError(
+          socket,
+          "tracking_stop_failed",
+          "Unable to stop ride tracking.",
         );
       }
     });
