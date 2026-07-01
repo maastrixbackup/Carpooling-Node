@@ -49,7 +49,10 @@ function registerRideTrackingSocket(io) {
           socket.emit("ride:tracking:snapshot", snapshot);
         }
       } catch (error) {
-        console.error("[SOCKET] ride tracking join error:", error?.message || error);
+        console.error(
+          "[SOCKET] ride tracking join error:",
+          error?.message || error,
+        );
 
         emitTrackingError(
           socket,
@@ -70,6 +73,10 @@ function registerRideTrackingSocket(io) {
     });
 
     socket.on("ride:tracking:update", async (payload = {}) => {
+      console.log("[TRACKING UPDATE RECEIVED]", {
+        userId: socket.user?.id,
+        payload,
+      });
       try {
         const driverId = socket.user?.id;
 
@@ -86,7 +93,7 @@ function registerRideTrackingSocket(io) {
           );
           return;
         }
-
+        console.log("[TRACKING BROADCAST]", result.data);
         io.to(RideTrackingService.rideRoom(result.data.rideId)).emit(
           "ride:tracking:update",
           result.data,
@@ -128,7 +135,10 @@ function registerRideTrackingSocket(io) {
           result.data,
         );
       } catch (error) {
-        console.error("[SOCKET] ride tracking stop error:", error?.message || error);
+        console.error(
+          "[SOCKET] ride tracking stop error:",
+          error?.message || error,
+        );
 
         emitTrackingError(
           socket,

@@ -36,12 +36,13 @@ const RideTrackingService = {
   async canJoinRideTracking({ rideId, userId }) {
     if (!rideId || !userId) return false;
 
-    const ride =
-      typeof RideModel.findById === "function"
-        ? await RideModel.findById(supabaseAdmin, rideId)
-        : null;
+    const driverRide = await RideModel.findDriverRideById(
+      supabaseAdmin,
+      rideId,
+      userId,
+    );
 
-    if (ride && String(ride.driver_id) === String(userId)) {
+    if (driverRide) {
       return true;
     }
 
