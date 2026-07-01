@@ -16,12 +16,14 @@ const userRoutes = require("./routes/user.routes");
 const pushTokenRoutes = require("./routes/notification/pushToken.routes");
 const notificationRoutes = require("./routes/notification/notification.routes");
 const notificationSettingsRoutes = require("./routes/notification/notificationSettings.routes");
-const chatRoutes = require("./routes/chat/chat.routes")
-const verificationRoutes = require("./routes/verification.routes")
-const rewardRoutes = require("./routes/reward.route")
+const chatRoutes = require("./routes/chat/chat.routes");
+const verificationRoutes = require("./routes/verification.routes");
+const rewardRoutes = require("./routes/reward.route");
 const supportRoutes = require("./routes/support.routes");
 const accountRoutes = require("./routes/account.routes");
 const { errorHandler } = require("./middleware/error.middleware");
+const socketAuthMiddleware = require("./sockets/socketAuth.middleware");
+const registerRideTrackingSocket = require("./sockets/rideTracking.socket");
 
 const app = express();
 
@@ -30,12 +32,12 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: "*",
-    methods: ["GET", "POST", "PATCH"],
+    methods: ["GET", "POST", "PATCH", "OPTIONS"],
   },
 });
 
+io.use(socketAuthMiddleware);
 app.set("io", io);
-
 io.on("connection", (socket) => {
   console.log("Socket connected:", socket.id);
   socket.on("join_room", (roomId) => {
@@ -48,6 +50,7 @@ io.on("connection", (socket) => {
     console.log("Socket disconnected:", socket.id);
   });
 });
+registerRideTrackingSocket(io);
 
 app.use((req, res, next) => {
   req.io = io;
@@ -60,7 +63,7 @@ app.use(express.json());
 app.use(morgan("dev"));
 
 // routes...
-app.get("/health", (req, res) => {
+app.get("/", (req, res) => {
   res.json({
     success: true,
     message: "Car Pooling API running",
@@ -86,7 +89,6 @@ app.use("/api/verification", verificationRoutes);
 app.use("/api/rewards", rewardRoutes);
 app.use("/api/support", supportRoutes);
 app.use("/api/account", accountRoutes);
-
 
 app.use(errorHandler);
 

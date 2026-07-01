@@ -620,10 +620,14 @@ const startRide = async (req, res) => {
         });
       }
     });
-
     return res.status(200).json({
       success: true,
       message: "Ride started successfully.",
+      data: {
+        rideId,
+        status: "ongoing",
+        trackingEnabled: true,
+      },
     });
   } catch (error) {
     console.error("[ERROR] Start ride:", error?.message || error);
