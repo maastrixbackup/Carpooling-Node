@@ -1,6 +1,7 @@
 const ReviewModel = require("../models/review.model");
 const BookingModel = require("../models/booking.model");
 const { sendPushToUsers } = require("../services/notification.service");
+const { supabaseAdmin } = require("../config/supabase");
 
 const createReview = async (req, res) => {
   try {
@@ -29,7 +30,7 @@ const createReview = async (req, res) => {
     }
 
     const booking = await BookingModel.findById(
-      req.supabase,
+      supabaseAdmin,
       bookingId,
       req.user.id,
     );
@@ -56,7 +57,7 @@ const createReview = async (req, res) => {
     }
 
     const existingReview = await ReviewModel.findByBooking(
-      req.supabase,
+      supabaseAdmin,
       bookingId,
     );
 
@@ -67,7 +68,7 @@ const createReview = async (req, res) => {
       });
     }
 
-    const createdReview = await ReviewModel.create(req.supabase, {
+    const createdReview = await ReviewModel.create(supabaseAdmin, {
       rideId: booking.ride_id,
       bookingId: booking.id,
       reviewerId: req.user.id,
@@ -119,8 +120,8 @@ const getDriverReviews = async (req, res) => {
       });
     }
 
-    const reviews = await ReviewModel.findByDriver(req.supabase, driverId);
-    const stats = await ReviewModel.getDriverStats(req.supabase, driverId);
+    const reviews = await ReviewModel.findByDriver(supabaseAdmin, driverId);
+    const stats = await ReviewModel.getDriverStats(supabaseAdmin, driverId);
 
     return res.status(200).json({
       success: true,
