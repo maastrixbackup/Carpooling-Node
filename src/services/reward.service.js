@@ -34,7 +34,7 @@ async function addRewardPoints({
 }
 
 async function rewardDriverForCompletedRide({ driverId, rideId }) {
-  return addRewardPoints({
+  await addRewardPoints({
     userId: driverId,
     points: REWARD_POINTS.RIDE_COMPLETED_DRIVER,
     type: REWARD_TYPES.RIDE_COMPLETED_DRIVER,
@@ -42,15 +42,17 @@ async function rewardDriverForCompletedRide({ driverId, rideId }) {
     referenceId: rideId,
   });
 
-  await NotificationEventService.notifyRewardEarned({
+  await sendRewardNotification({
     userId: driverId,
     points: REWARD_POINTS.RIDE_COMPLETED_DRIVER,
     rideId,
   });
+
+  return true;
 }
 
 async function rewardPassengerForCompletedRide({ passengerId, rideId }) {
-  return addRewardPoints({
+  await addRewardPoints({
     userId: passengerId,
     points: REWARD_POINTS.RIDE_COMPLETED_PASSENGER,
     type: REWARD_TYPES.RIDE_COMPLETED_PASSENGER,
@@ -58,11 +60,13 @@ async function rewardPassengerForCompletedRide({ passengerId, rideId }) {
     referenceId: rideId,
   });
 
-  await NotificationEventService.notifyRewardEarned({
+  await sendRewardNotification({
     userId: passengerId,
     points: REWARD_POINTS.RIDE_COMPLETED_PASSENGER,
     rideId,
   });
+
+  return true;
 }
 
 async function rewardCompletedRide({ ride, bookings = [] }) {
@@ -83,6 +87,24 @@ async function rewardCompletedRide({ ride, bookings = [] }) {
     await rewardPassengerForCompletedRide({
       passengerId: booking.passenger_id,
       rideId: ride.id,
+    });
+  }
+}
+
+async function sendRewardNotification({ userId, points, rideId }) {
+  try {
+    await NotificationEventService.notifyRewardEarned({
+      userId,
+      points,
+      rideId,
+    });
+  } catch (error) {
+    console.error("[REWARD NOTIFICATION ERROR]", {
+      userId,
+      rideId,
+      points,
+      message: error?.message,
+      stack: error?.stack,
     });
   }
 }
