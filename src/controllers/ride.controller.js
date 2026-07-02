@@ -9,6 +9,7 @@ const { incrementUserTotalRides } = require("../utils/user-stats.helper");
 const RewardService = require("../services/reward.service");
 const { logError } = require("../utils/logger");
 const NotificationEventService = require("../services/notification-event.service");
+const SystemLogService = require("../services/systemLog.service");
 
 const createRide = async (req, res) => {
   try {
@@ -117,6 +118,22 @@ const createRide = async (req, res) => {
       pricePerSeat: Number(price_per_seat || 0),
       totalSeats: Number(total_seats),
       availableSeats: Number(available_seats || total_seats),
+    });
+
+    const rideId = ride.id;
+
+    SystemLogService.logFromReq(req, {
+      module: "rides",
+      action: "ride_started",
+      entityType: "ride",
+      entityId: ride.id,
+      status: "success",
+      severity: "info",
+      message: "Driver started the ride.",
+      metadata: {
+        rideId: ride.id,
+        driverId: req.user.id,
+      },
     });
 
     return res.status(201).json({
