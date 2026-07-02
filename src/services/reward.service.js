@@ -1,4 +1,5 @@
 const { supabaseAdmin } = require("../config/supabase");
+const NotificationEventService = require("./notification-event.service");
 
 const REWARD_POINTS = {
   RIDE_COMPLETED_DRIVER: 10,
@@ -40,6 +41,12 @@ async function rewardDriverForCompletedRide({ driverId, rideId }) {
     description: "Completed ride as driver",
     referenceId: rideId,
   });
+
+  await NotificationEventService.notifyRewardEarned({
+    userId: driverId,
+    points: REWARD_POINTS.RIDE_COMPLETED_DRIVER,
+    rideId,
+  });
 }
 
 async function rewardPassengerForCompletedRide({ passengerId, rideId }) {
@@ -49,6 +56,12 @@ async function rewardPassengerForCompletedRide({ passengerId, rideId }) {
     type: REWARD_TYPES.RIDE_COMPLETED_PASSENGER,
     description: "Completed ride as passenger",
     referenceId: rideId,
+  });
+
+  await NotificationEventService.notifyRewardEarned({
+    userId: passengerId,
+    points: REWARD_POINTS.RIDE_COMPLETED_PASSENGER,
+    rideId,
   });
 }
 
