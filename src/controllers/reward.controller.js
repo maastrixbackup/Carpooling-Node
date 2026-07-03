@@ -39,7 +39,6 @@ function getRedeemValue(points) {
 const getMyRewards = async (req, res) => {
   try {
     const userId = req.user.id;
-
     const [wallet, transactions, stats] = await Promise.all([
       RewardModel.getWallet(supabaseAdmin, userId),
       RewardModel.getTransactions(supabaseAdmin, userId, 20),

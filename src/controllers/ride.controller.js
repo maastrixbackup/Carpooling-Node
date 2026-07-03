@@ -9,6 +9,7 @@ const { incrementUserTotalRides } = require("../utils/user-stats.helper");
 const RewardService = require("../services/reward.service");
 const { logError } = require("../utils/logger");
 const NotificationEventService = require("../services/notification-event.service");
+const SystemLogService = require("../services/systemLog.service");
 
 const createRide = async (req, res) => {
   try {
@@ -119,6 +120,22 @@ const createRide = async (req, res) => {
       availableSeats: Number(available_seats || total_seats),
     });
 
+    const rideId = ride.id;
+
+    SystemLogService.logFromReq(req, {
+      module: "rides",
+      action: "ride_created",
+      entityType: "ride",
+      entityId: ride.id,
+      status: "success",
+      severity: "info",
+      message: "Driver created the ride.",
+      metadata: {
+        rideId: ride.id,
+        driverId: req.user.id,
+      },
+    });
+
     return res.status(201).json({
       success: true,
       message: "Ride published successfully.",
@@ -126,7 +143,17 @@ const createRide = async (req, res) => {
     });
   } catch (error) {
     console.error("[ERROR] Create ride:", error?.message || error);
-
+    await SystemLogService.logFromReq(req, {
+      module: "rides",
+      action: "ride_create_failed",
+      entityType: "ride",
+      status: "failed",
+      severity: "error",
+      message: error.message,
+      metadata: {
+        body: req.body,
+      },
+    });
     return res.status(500).json({
       success: false,
       message: error?.message || "Something went wrong while publishing ride.",
@@ -368,13 +395,38 @@ const cancelRide = async (req, res) => {
       }
     });
 
+    SystemLogService.logFromReq(req, {
+      module: "rides",
+      action: "ride_cancelled",
+      entityType: "ride",
+      entityId: rideId,
+      status: "success",
+      severity: "warning",
+      message: "Driver cancelled the ride.",
+      metadata: {
+        rideId: rideId,
+        driverId: driverId,
+        previousStatus: ride.status,
+      },
+    });
+
     return res.status(200).json({
       success: true,
       message: "Ride cancelled successfully.",
     });
   } catch (error) {
     console.error("[ERROR] Cancel ride:", error?.message || error);
-
+    await SystemLogService.logFromReq(req, {
+      module: "rides",
+      action: "cancel_ride_failed",
+      entityType: "ride",
+      status: "failed",
+      severity: "error",
+      message: error.message,
+      metadata: {
+        body: req.body,
+      },
+    });
     return res.status(500).json({
       success: false,
       message: "Something went wrong while cancelling ride.",
@@ -546,6 +598,23 @@ const updateRide = async (req, res) => {
       driverId,
     );
 
+    SystemLogService.logFromReq(req, {
+      module: "rides",
+      action: "ride_updated",
+      entityType: "ride",
+      entityId: rideId,
+      status: "success",
+      severity: "info",
+      message: "Ride details updated.",
+      metadata: {
+        rideId,
+        driverId,
+        updatedFields: Object.keys(allowedPayload).filter(
+          (key) => allowedPayload[key] !== undefined,
+        ),
+      },
+    });
+
     return res.status(200).json({
       success: true,
       message: "Ride updated successfully.",
@@ -553,7 +622,17 @@ const updateRide = async (req, res) => {
     });
   } catch (error) {
     console.error("[ERROR] Update ride:", error?.message || error);
-
+    await SystemLogService.logFromReq(req, {
+      module: "rides",
+      action: "update_ride_failed",
+      entityType: "ride",
+      status: "failed",
+      severity: "error",
+      message: error.message,
+      metadata: {
+        body: req.body,
+      },
+    });
     return res.status(500).json({
       success: false,
       message: "Something went wrong while updating ride.",
@@ -620,6 +699,21 @@ const startRide = async (req, res) => {
         });
       }
     });
+
+    SystemLogService.logFromReq(req, {
+      module: "rides",
+      action: "ride_started",
+      entityType: "ride",
+      entityId: rideId,
+      status: "success",
+      severity: "info",
+      message: "Driver started the ride.",
+      metadata: {
+        rideId,
+        driverId,
+      },
+    });
+
     return res.status(200).json({
       success: true,
       message: "Ride started successfully.",
@@ -631,6 +725,17 @@ const startRide = async (req, res) => {
     });
   } catch (error) {
     console.error("[ERROR] Start ride:", error?.message || error);
+    await SystemLogService.logFromReq(req, {
+      module: "rides",
+      action: "start_ride_failed",
+      entityType: "ride",
+      status: "failed",
+      severity: "error",
+      message: error.message,
+      metadata: {
+        body: req.body,
+      },
+    });
 
     return res.status(500).json({
       success: false,
@@ -704,6 +809,21 @@ const completeRide = async (req, res) => {
       bookings: eligibleBookings,
     });
 
+    SystemLogService.logFromReq(req, {
+      module: "rides",
+      action: "ride_completed",
+      entityType: "ride",
+      entityId: rideId,
+      status: "success",
+      severity: "info",
+      message: "Driver completed the ride.",
+      metadata: {
+        rideId,
+        driverId,
+        passengerCount: passengerIds.length,
+      },
+    });
+
     setImmediate(async () => {
       try {
         await NotificationEventService.notifyRideCompleted({
@@ -734,6 +854,18 @@ const completeRide = async (req, res) => {
     });
   } catch (error) {
     logError("COMPLETE_RIDE", error);
+
+    await SystemLogService.logFromReq(req, {
+      module: "rides",
+      action: "complete_ride_failed",
+      entityType: "ride",
+      status: "failed",
+      severity: "error",
+      message: error.message,
+      metadata: {
+        body: req.body,
+      },
+    });
 
     return res.status(500).json({
       success: false,

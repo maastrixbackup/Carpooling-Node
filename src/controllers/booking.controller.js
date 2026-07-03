@@ -6,6 +6,7 @@ const RideModel = require("../models/ride.model");
 const { sendPushToUsers } = require("../services/notification.service");
 const { logError } = require("../utils/logger");
 const NotificationEventService = require("../services/notification-event.service");
+const SystemLogService = require("../services/systemLog.service");
 
 const generateBookingCode = () => {
   return `CP${Date.now()}${Math.floor(Math.random() * 900 + 100)}`;
@@ -132,6 +133,24 @@ const createBooking = async (req, res) => {
       }
     });
 
+    SystemLogService.logFromReq(req, {
+      module: "bookings",
+      action: "booking_created",
+      entityType: "booking",
+      entityId: booking.id,
+      status: "success",
+      severity: "info",
+      message: "Passenger created a booking.",
+      metadata: {
+        bookingId: booking.id,
+        rideId: ride.id,
+        passengerId: req.user.id,
+        driverId: ride.driver_id,
+        seats: requestedSeats,
+        totalPrice,
+      },
+    });
+
     return res.status(201).json({
       success: true,
       message: "Booking created successfully.",
@@ -139,7 +158,19 @@ const createBooking = async (req, res) => {
     });
   } catch (error) {
     console.error("[ERROR] Create booking:", error?.message || error);
-
+    await SystemLogService.logFromReq(req, {
+      module: "bookings",
+      action: "booking_create_failed",
+      entityType: "booking",
+      status: "failed",
+      severity: "error",
+      message: error.message,
+      metadata: {
+        rideId: req.body.ride_id,
+        passengerId: req.user?.id,
+        requestBody: req.body,
+      },
+    });
     return res.status(500).json({
       success: false,
       message: "Something went wrong while creating booking.",
@@ -389,6 +420,22 @@ const respondToBooking = async (req, res) => {
     setImmediate(async () => {
       try {
         if (status === "accepted") {
+          SystemLogService.logFromReq(req, {
+            module: "bookings",
+            action: "booking_accepted",
+            entityType: "booking",
+            entityId: booking.id,
+            status: "success",
+            severity: "info",
+            message: "Driver accepted the booking.",
+            metadata: {
+              bookingId: booking.id,
+              rideId: booking.ride_id,
+              passengerId: booking.passenger_id,
+              driverId: req.user.id,
+              chatRoomId: chatRoom?.id || null,
+            },
+          });
           await NotificationEventService.notifyBookingAccepted({
             passengerId: booking.passenger_id,
             bookingId: booking.id,
@@ -396,6 +443,21 @@ const respondToBooking = async (req, res) => {
             roomId: chatRoom?.id,
           });
         } else {
+          SystemLogService.logFromReq(req, {
+            module: "bookings",
+            action: "booking_rejected",
+            entityType: "booking",
+            entityId: booking.id,
+            status: "success",
+            severity: "warning",
+            message: "Driver rejected the booking.",
+            metadata: {
+              bookingId: booking.id,
+              rideId: booking.ride_id,
+              passengerId: booking.passenger_id,
+              driverId: req.user.id,
+            },
+          });
           await NotificationEventService.notifyBookingRejected({
             passengerId: booking.passenger_id,
             bookingId: booking.id,
@@ -502,6 +564,23 @@ const cancelBooking = async (req, res) => {
         }
       });
     }
+
+    SystemLogService.logFromReq(req, {
+      module: "bookings",
+      action: "booking_cancelled",
+      entityType: "booking",
+      entityId: booking.id,
+      status: "success",
+      severity: "warning",
+      message: "Passenger cancelled the booking.",
+      metadata: {
+        bookingId: booking.id,
+        rideId: booking.ride_id,
+        passengerId: booking.passenger_id,
+        driverId: booking.rides?.driver_id,
+        releasedSeats: booking.seats,
+      },
+    });
 
     return res.status(200).json({
       success: true,
