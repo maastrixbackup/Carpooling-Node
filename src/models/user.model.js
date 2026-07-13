@@ -81,7 +81,7 @@ const UserModel = {
     return !!data;
   },
 
-  async updateProfile(id, payload) {
+  async updateProfile(id, payload = {}) {
     const allowedPayload = {
       full_name: payload.full_name,
       phone: payload.phone,
@@ -99,6 +99,10 @@ const UserModel = {
       }
     });
 
+    if (Object.keys(allowedPayload).length === 0) {
+      throw new Error("No valid profile fields provided.");
+    }
+
     const { data, error } = await supabaseAdmin
       .from("user_details")
       .update(allowedPayload)
@@ -107,7 +111,6 @@ const UserModel = {
       .single();
 
     if (error) throw error;
-
     return data;
   },
 
@@ -160,6 +163,86 @@ const UserModel = {
       pan_verification_status: details?.pan_verification_status || "pending",
       bank_verification_status: details?.bank_verification_status || "pending",
     };
+  },
+
+  async findDetailsById(supabase, userId) {
+    const { data, error } = await supabase
+      .from("user_details")
+      .select("*")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data || null;
+  },
+
+  async updateDetails(supabase, userId, payload) {
+    const { data, error } = await supabase
+      .from("user_details")
+      .update(payload)
+      .eq("id", userId)
+      .select("*")
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  async markPhoneVerified(supabase, userId, phone) {
+    return this.updateDetails(supabase, userId, {
+      phone,
+      phone_verified: true,
+      phone_verified_at: new Date().toISOString(),
+      onboarding_step: "aadhaar",
+    });
+  },
+
+  async submitAadhaar(supabase, userId, { aadhaarHash, aadhaarLast4 }) {
+    return this.updateDetails(supabase, userId, {
+      aadhaar_hash: aadhaarHash,
+      aadhaar_last4: aadhaarLast4,
+      aadhaar_submitted_at: new Date().toISOString(),
+      aadhaar_verification_status: "approved",
+      onboarding_step: "bank",
+    });
+  },
+
+  async submitBank(supabase, userId, payload) {
+    return this.updateDetails(supabase, userId, {
+      bank_account_holder: payload.bankAccountHolder,
+      bank_account_number: payload.bankAccountNumber,
+      bank_account_ifsc: payload.bankAccountIfsc,
+      bank_name: payload.bankName,
+      bank_verification_status: "approved",
+    });
+  },
+
+  async submitIdentity(supabase, userId, payload) {
+    const updatePayload = {
+      identity_type: payload.identityType,
+      identity_hash: payload.identityHash,
+      identity_last4: payload.identityLast4,
+      identity_submitted_at: new Date().toISOString(),
+      onboarding_step: "bank",
+    };
+
+    if (payload.identityType === "aadhaar") {
+      updatePayload.aadhaar_hash = payload.identityHash;
+      updatePayload.aadhaar_last4 = payload.identityLast4;
+      updatePayload.aadhaar_submitted_at = new Date().toISOString();
+      updatePayload.aadhaar_verification_status = "approved";
+      updatePayload.pan_verification_status = "pending";
+    }
+
+    if (payload.identityType === "pan") {
+      updatePayload.pan_hash = payload.identityHash;
+      updatePayload.pan_last4 = payload.identityLast4;
+      updatePayload.pan_submitted_at = new Date().toISOString();
+      updatePayload.pan_verification_status = "approved";
+      updatePayload.aadhaar_verification_status = "pending";
+    }
+
+    return this.updateDetails(supabase, userId, updatePayload);
   },
 };
 

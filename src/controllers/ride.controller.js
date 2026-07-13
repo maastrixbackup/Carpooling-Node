@@ -1,6 +1,15 @@
 const RideModel = require("../models/ride.model");
+const BookingModel = require("../models/booking.model");
 const VehicleModel = require("../models/vehicle.model");
 const { getDrivingRoutes } = require("../utils/route.utils");
+const { matchPassengerRoute } = require("../utils/routeMatch.utils");
+const { decodePolylineToLineString } = require("../utils/geo.utils");
+const { supabaseAdmin } = require("../config/supabase");
+const { incrementUserTotalRides } = require("../utils/user-stats.helper");
+const RewardService = require("../services/reward.service");
+const { logError } = require("../utils/logger");
+const NotificationEventService = require("../services/notification-event.service");
+const SystemLogService = require("../services/systemLog.service");
 
 const createRide = async (req, res) => {
   try {
@@ -20,6 +29,7 @@ const createRide = async (req, res) => {
       smoking_allowed,
       instant_booking,
       max_two_in_back,
+      price_per_km,
       price_per_seat,
       total_seats,
       available_seats,
@@ -36,7 +46,7 @@ const createRide = async (req, res) => {
       !destination_lng ||
       !ride_date ||
       !departure_time ||
-      !price_per_seat ||
+      !price_per_km ||
       !total_seats
     ) {
       return res.status(400).json({
@@ -46,7 +56,7 @@ const createRide = async (req, res) => {
     }
 
     const vehicle = await VehicleModel.findById(
-      req.supabase,
+      supabaseAdmin,
       vehicle_id,
       req.user.id,
     );
@@ -80,7 +90,7 @@ const createRide = async (req, res) => {
       departure_time,
       selectedRoute.duration_seconds,
     );
-
+    const routeLineWkt = decodePolylineToLineString(selectedRoute.polyline);
     const ride = await RideModel.create(req.supabase, {
       driverId: req.user.id,
       vehicleId: vehicle_id,
@@ -93,6 +103,7 @@ const createRide = async (req, res) => {
       destinationLat: Number(destination_lat),
       destinationLng: Number(destination_lng),
       routePoints: selectedRoute.route_points,
+      routeLineWkt,
       rideDate: ride_date,
       departureTime: departure_time,
       polyline: selectedRoute.polyline,
@@ -103,9 +114,26 @@ const createRide = async (req, res) => {
       smokingAllowed: smoking_allowed || "no",
       instantBooking: instant_booking || "yes",
       maxTwoInBack: max_two_in_back || "no",
-      pricePerSeat: Number(price_per_seat),
+      pricePerKm: Number(price_per_km),
+      pricePerSeat: Number(price_per_seat || 0),
       totalSeats: Number(total_seats),
       availableSeats: Number(available_seats || total_seats),
+    });
+
+    const rideId = ride.id;
+
+    SystemLogService.logFromReq(req, {
+      module: "rides",
+      action: "ride_created",
+      entityType: "ride",
+      entityId: ride.id,
+      status: "success",
+      severity: "info",
+      message: "Driver created the ride.",
+      metadata: {
+        rideId: ride.id,
+        driverId: req.user.id,
+      },
     });
 
     return res.status(201).json({
@@ -115,7 +143,17 @@ const createRide = async (req, res) => {
     });
   } catch (error) {
     console.error("[ERROR] Create ride:", error?.message || error);
-
+    await SystemLogService.logFromReq(req, {
+      module: "rides",
+      action: "ride_create_failed",
+      entityType: "ride",
+      status: "failed",
+      severity: "error",
+      message: error.message,
+      metadata: {
+        body: req.body,
+      },
+    });
     return res.status(500).json({
       success: false,
       message: error?.message || "Something went wrong while publishing ride.",
@@ -125,31 +163,107 @@ const createRide = async (req, res) => {
 
 const getRides = async (req, res) => {
   try {
-    const rides = await RideModel.findAll(req.supabase, {
-      source: req.query.source,
-      destination: req.query.destination,
-      rideDate: req.query.ride_date,
-      minSeats: req.query.min_seats,
+    const {
+      source,
+      destination,
+      source_lat,
+      source_lng,
+      destination_lat,
+      destination_lng,
+      ride_date,
+      min_seats,
+    } = req.query;
+
+    const hasPartialCoords =
+      source_lat || source_lng || destination_lat || destination_lng;
+
+    const hasAllCoords =
+      source_lat && source_lng && destination_lat && destination_lng;
+
+    if (hasPartialCoords && !hasAllCoords) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Source and destination coordinates are required for route matching.",
+      });
+    }
+
+    const db = supabaseAdmin;
+
+    if (hasAllCoords) {
+      const basePayload = {
+        sourceLat: source_lat,
+        sourceLng: source_lng,
+        destinationLat: destination_lat,
+        destinationLng: destination_lng,
+        rideDate: ride_date || null,
+        minSeats: min_seats || 1,
+      };
+
+      // 1. Strict match first
+      let rides = await RideModel.searchMatchedRides(db, {
+        ...basePayload,
+        maxDistanceMeters: 1500,
+      });
+
+      if (rides.length > 0) {
+        return res.status(200).json({
+          success: true,
+          message: "Matched rides fetched successfully.",
+          data: {
+            matchType: "exact",
+            rides,
+          },
+        });
+      }
+
+      // 2. Nearby fallback
+      rides = await RideModel.searchMatchedRides(db, {
+        ...basePayload,
+        maxDistanceMeters: 10000,
+      });
+
+      return res.status(200).json({
+        success: true,
+        message:
+          rides.length > 0
+            ? "Nearby rides fetched successfully."
+            : "No rides found.",
+        data: {
+          matchType: rides.length > 0 ? "nearby" : "none",
+          rides,
+        },
+      });
+    }
+
+    const rides = await RideModel.findAll(db, {
+      source,
+      destination,
+      rideDate: ride_date,
+      minSeats: min_seats,
     });
 
     return res.status(200).json({
       success: true,
       message: "Rides fetched successfully.",
-      data: { rides },
+      data: {
+        matchType: "text",
+        rides,
+      },
     });
   } catch (error) {
     console.error("[ERROR] Get rides:", error?.message || error);
 
     return res.status(500).json({
       success: false,
-      message: "Something went wrong while fetching rides.",
+      message: error?.message || "Something went wrong while fetching rides.",
     });
   }
 };
 
 const getRideById = async (req, res) => {
   try {
-    const ride = await RideModel.findById(req.supabase, req.params.id);
+    const ride = await RideModel.findById(supabaseAdmin, req.params.id);
 
     if (!ride) {
       return res.status(404).json({
@@ -173,9 +287,29 @@ const getRideById = async (req, res) => {
   }
 };
 
+function mapMyRideToUi(ride) {
+  const vehicle = ride.vehicles || {};
+  return {
+    id: String(ride.id),
+    source_address: ride.source_address || "",
+    destination_address: ride.destination_address || "",
+    ride_date: ride.ride_date || "",
+    departure_time: ride.departure_time || "",
+    price_per_km: Number(ride.price_per_km || 0),
+    price_per_seat: Number(ride.price_per_seat || 0),
+    total_seats: Number(ride.total_seats || 0),
+    available_seats: Number(ride.available_seats || 0),
+    brand: vehicle.brand || "",
+    model: vehicle.model || "",
+    status: ride.status || "scheduled",
+  };
+}
+
 const getMyRides = async (req, res) => {
   try {
-    const rides = await RideModel.findByDriver(req.supabase, req.user.id);
+    const rawRides = await RideModel.findByDriver(supabaseAdmin, req.user.id);
+
+    const rides = rawRides.map(mapMyRideToUi);
 
     return res.status(200).json({
       success: true,
@@ -194,10 +328,26 @@ const getMyRides = async (req, res) => {
 
 const cancelRide = async (req, res) => {
   try {
+    const rideId = req.params.id;
+    const driverId = req.user.id;
+
+    const ride = await RideModel.findDriverRideById(
+      supabaseAdmin,
+      rideId,
+      driverId,
+    );
+
+    if (!ride) {
+      return res.status(404).json({
+        success: false,
+        message: "Ride not found or not owned by you.",
+      });
+    }
+
     const updated = await RideModel.updateStatus(
-      req.supabase,
-      req.params.id,
-      req.user.id,
+      supabaseAdmin,
+      rideId,
+      driverId,
       "cancelled",
     );
 
@@ -208,13 +358,75 @@ const cancelRide = async (req, res) => {
       });
     }
 
+    setImmediate(async () => {
+      try {
+        const bookings = await BookingModel.findByDriver(supabaseAdmin, {
+          driverId,
+          rideId,
+        });
+
+        const passengerIds = [
+          ...new Set(
+            bookings
+              .filter((booking) =>
+                ["accepted", "ongoing", "payment_confirmed"].includes(
+                  String(booking.status).toLowerCase(),
+                ),
+              )
+              .map((booking) => booking.passenger_id)
+              .filter(Boolean)
+              .map(String),
+          ),
+        ];
+
+        await NotificationEventService.notifyRideCancelled({
+          driverId,
+          passengerIds,
+          rideId,
+          from: ride.source_address,
+          to: ride.destination_address,
+        });
+      } catch (notifyError) {
+        console.error("[NOTIFICATION ERROR] Ride cancelled:", {
+          rideId,
+          message: notifyError?.message,
+          stack: notifyError?.stack,
+        });
+      }
+    });
+
+    SystemLogService.logFromReq(req, {
+      module: "rides",
+      action: "ride_cancelled",
+      entityType: "ride",
+      entityId: rideId,
+      status: "success",
+      severity: "warning",
+      message: "Driver cancelled the ride.",
+      metadata: {
+        rideId: rideId,
+        driverId: driverId,
+        previousStatus: ride.status,
+      },
+    });
+
     return res.status(200).json({
       success: true,
       message: "Ride cancelled successfully.",
     });
   } catch (error) {
     console.error("[ERROR] Cancel ride:", error?.message || error);
-
+    await SystemLogService.logFromReq(req, {
+      module: "rides",
+      action: "cancel_ride_failed",
+      entityType: "ride",
+      status: "failed",
+      severity: "error",
+      message: error.message,
+      metadata: {
+        body: req.body,
+      },
+    });
     return res.status(500).json({
       success: false,
       message: "Something went wrong while cancelling ride.",
@@ -256,29 +468,85 @@ const getRouteOptions = async (req, res) => {
   }
 };
 
+function mapDriverRideToUi(ride) {
+  const vehicle = ride.vehicles || {};
+
+  return {
+    id: String(ride.id),
+    source_address: ride.source_address,
+    destination_address: ride.destination_address,
+    ride_date: ride.ride_date,
+    departure_time: ride.departure_time,
+
+    price_per_km: Number(ride.price_per_km || 0),
+    price_per_seat: Number(ride.price_per_seat || 0),
+
+    total_seats: Number(ride.total_seats || 0),
+    available_seats: Number(ride.available_seats || 0),
+
+    status: ride.status,
+
+    brand: vehicle.brand || "",
+    model: vehicle.model || "",
+    registration_number: vehicle.registration_number || "",
+    color: vehicle.color || "",
+
+    distance_meters: Number(ride.distance_meters || 0),
+    duration_seconds: Number(ride.duration_seconds || 0),
+
+    pet_allowed: ride.pet_allowed,
+    smoking_allowed: ride.smoking_allowed,
+    instant_booking: ride.instant_booking,
+    max_two_in_back: ride.max_two_in_back,
+  };
+}
+
+function mapDriverBookingToUi(booking) {
+  const passenger = booking.user_details || {};
+
+  return {
+    id: String(booking.id),
+    booking_code: booking.booking_code,
+
+    passenger_id: booking.passenger_id,
+    passenger_name: passenger.full_name || "Passenger",
+    passenger_phone: passenger.phone || null,
+    passenger_profile_picture: passenger.profile_picture || null,
+
+    seats: Number(booking.seats || 0),
+    status: booking.status || "pending",
+    total_price: Number(booking.total_price || 0),
+    payment_status: booking.payment_status || "unpaid",
+    created_at: booking.created_at,
+  };
+}
+
 const getDriverRideDetails = async (req, res) => {
   try {
     const rideId = req.params.id;
     const driverId = req.user.id;
 
-    const ride = await RideModel.findDriverRideById(
-      req.supabase,
+    const rawRide = await RideModel.findDriverRideById(
+      supabaseAdmin,
       rideId,
       driverId,
     );
 
-    if (!ride) {
+    if (!rawRide) {
       return res.status(404).json({
         success: false,
         message: "Ride not found or not owned by you.",
       });
     }
 
-    const bookings = await RideModel.findRideBookingsForDriver(
-      req.supabase,
+    const rawBookings = await RideModel.findRideBookingsForDriver(
+      supabaseAdmin,
       rideId,
       driverId,
     );
+
+    const ride = mapDriverRideToUi(rawRide);
+    const bookings = rawBookings.map(mapDriverBookingToUi);
 
     return res.status(200).json({
       success: true,
@@ -301,6 +569,7 @@ const updateRide = async (req, res) => {
     const driverId = req.user.id;
 
     const allowedPayload = {
+      price_per_km: req.body.price_per_km,
       price_per_seat: req.body.price_per_seat,
       available_seats: req.body.available_seats,
       pet_allowed: req.body.pet_allowed,
@@ -310,7 +579,7 @@ const updateRide = async (req, res) => {
     };
 
     const updated = await RideModel.updateDriverRide(
-      req.supabase,
+      supabaseAdmin,
       rideId,
       driverId,
       allowedPayload,
@@ -324,10 +593,27 @@ const updateRide = async (req, res) => {
     }
 
     const ride = await RideModel.findDriverRideById(
-      req.supabase,
+      supabaseAdmin,
       rideId,
       driverId,
     );
+
+    SystemLogService.logFromReq(req, {
+      module: "rides",
+      action: "ride_updated",
+      entityType: "ride",
+      entityId: rideId,
+      status: "success",
+      severity: "info",
+      message: "Ride details updated.",
+      metadata: {
+        rideId,
+        driverId,
+        updatedFields: Object.keys(allowedPayload).filter(
+          (key) => allowedPayload[key] !== undefined,
+        ),
+      },
+    });
 
     return res.status(200).json({
       success: true,
@@ -336,7 +622,17 @@ const updateRide = async (req, res) => {
     });
   } catch (error) {
     console.error("[ERROR] Update ride:", error?.message || error);
-
+    await SystemLogService.logFromReq(req, {
+      module: "rides",
+      action: "update_ride_failed",
+      entityType: "ride",
+      status: "failed",
+      severity: "error",
+      message: error.message,
+      metadata: {
+        body: req.body,
+      },
+    });
     return res.status(500).json({
       success: false,
       message: "Something went wrong while updating ride.",
@@ -346,11 +642,10 @@ const updateRide = async (req, res) => {
 
 const startRide = async (req, res) => {
   try {
-    const result = await RideModel.startRide(
-      req.supabase,
-      req.params.id,
-      req.user.id,
-    );
+    const rideId = req.params.id;
+    const driverId = req.user.id;
+
+    const result = await RideModel.startRide(supabaseAdmin, rideId, driverId);
 
     if (!result.success) {
       const messages = {
@@ -367,12 +662,80 @@ const startRide = async (req, res) => {
       });
     }
 
+    setImmediate(async () => {
+      try {
+        const ride = await RideModel.findDriverRideById(
+          supabaseAdmin,
+          rideId,
+          driverId,
+        );
+
+        const bookings = await BookingModel.findByDriver(supabaseAdmin, {
+          driverId,
+          rideId,
+        });
+
+        const passengerIds = bookings
+          .filter((booking) =>
+            ["accepted", "payment_confirmed", "ongoing"].includes(
+              String(booking.status).toLowerCase(),
+            ),
+          )
+          .map((booking) => booking.passenger_id)
+          .filter(Boolean);
+
+        await NotificationEventService.notifyRideStarted({
+          driverId,
+          passengerIds,
+          rideId,
+          from: ride?.source_address,
+          to: ride?.destination_address,
+        });
+      } catch (notifyError) {
+        console.error("[NOTIFICATION ERROR] Ride started:", {
+          rideId,
+          message: notifyError?.message,
+          stack: notifyError?.stack,
+        });
+      }
+    });
+
+    SystemLogService.logFromReq(req, {
+      module: "rides",
+      action: "ride_started",
+      entityType: "ride",
+      entityId: rideId,
+      status: "success",
+      severity: "info",
+      message: "Driver started the ride.",
+      metadata: {
+        rideId,
+        driverId,
+      },
+    });
+
     return res.status(200).json({
       success: true,
       message: "Ride started successfully.",
+      data: {
+        rideId,
+        status: "ongoing",
+        trackingEnabled: true,
+      },
     });
   } catch (error) {
     console.error("[ERROR] Start ride:", error?.message || error);
+    await SystemLogService.logFromReq(req, {
+      module: "rides",
+      action: "start_ride_failed",
+      entityType: "ride",
+      status: "failed",
+      severity: "error",
+      message: error.message,
+      metadata: {
+        body: req.body,
+      },
+    });
 
     return res.status(500).json({
       success: false,
@@ -383,12 +746,13 @@ const startRide = async (req, res) => {
 
 const completeRide = async (req, res) => {
   try {
+    const rideId = req.params.id;
+    const driverId = req.user.id;
     const result = await RideModel.completeRide(
-      req.supabase,
-      req.params.id,
-      req.user.id,
+      supabaseAdmin,
+      rideId,
+      driverId,
     );
-
     if (!result.success) {
       const messages = {
         ride_not_found_or_not_owner: "Ride not found or not owned by you.",
@@ -405,12 +769,103 @@ const completeRide = async (req, res) => {
       });
     }
 
+    const ride = await RideModel.findDriverRideById(
+      supabaseAdmin,
+      rideId,
+      driverId,
+    );
+
+    if (!ride) {
+      return res.status(404).json({
+        success: false,
+        message: "Completed ride not found.",
+      });
+    }
+
+    const bookings = await BookingModel.findByDriver(supabaseAdmin, {
+      driverId,
+      rideId,
+    });
+
+    const eligibleBookings = bookings.filter((booking) =>
+      ["accepted", "ongoing", "completed", "payment_confirmed"].includes(
+        booking.status,
+      ),
+    );
+
+    const passengerIds = [
+      ...new Set(
+        eligibleBookings
+          .map((booking) => booking.passenger_id)
+          .filter(Boolean)
+          .map(String),
+      ),
+    ];
+
+    await incrementUserTotalRides(driverId);
+
+    await RewardService.rewardCompletedRide({
+      ride,
+      bookings: eligibleBookings,
+    });
+
+    SystemLogService.logFromReq(req, {
+      module: "rides",
+      action: "ride_completed",
+      entityType: "ride",
+      entityId: rideId,
+      status: "success",
+      severity: "info",
+      message: "Driver completed the ride.",
+      metadata: {
+        rideId,
+        driverId,
+        passengerCount: passengerIds.length,
+      },
+    });
+
+    setImmediate(async () => {
+      try {
+        await NotificationEventService.notifyRideCompleted({
+          driverId: ride.driver_id || driverId,
+          passengerIds,
+          rideId: ride.id || rideId,
+          from: ride.source_address,
+          to: ride.destination_address,
+        });
+      } catch (notifyError) {
+        console.error("[NOTIFICATION ERROR] Ride completed:", {
+          rideId,
+          message: notifyError?.message,
+          details: notifyError?.details,
+          code: notifyError?.code,
+          stack: notifyError?.stack,
+        });
+      }
+    });
+
     return res.status(200).json({
       success: true,
       message: "Ride completed successfully.",
+      data: {
+        rideId: ride.id,
+        notifiedPassengers: passengerIds.length,
+      },
     });
   } catch (error) {
-    console.error("[ERROR] Complete ride:", error?.message || error);
+    logError("COMPLETE_RIDE", error);
+
+    await SystemLogService.logFromReq(req, {
+      module: "rides",
+      action: "complete_ride_failed",
+      entityType: "ride",
+      status: "failed",
+      severity: "error",
+      message: error.message,
+      metadata: {
+        body: req.body,
+      },
+    });
 
     return res.status(500).json({
       success: false,
@@ -425,6 +880,11 @@ function calculateEstimatedReachTime(rideDate, departureTime, durationSeconds) {
   if (Number.isNaN(start.getTime())) return null;
   start.setSeconds(start.getSeconds() + Number(durationSeconds));
   return start.toISOString();
+}
+
+function calculateKmPrice(distanceMeters, pricePerKm, seats = 1) {
+  const distanceKm = Number(distanceMeters) / 1000;
+  return Number((distanceKm * Number(pricePerKm) * Number(seats)).toFixed(2));
 }
 
 module.exports = {

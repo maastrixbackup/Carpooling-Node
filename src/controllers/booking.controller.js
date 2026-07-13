@@ -1,8 +1,12 @@
+const { supabaseAdmin } = require("../config/supabase");
 const BookingModel = require("../models/booking.model");
+const ChatModel = require("../models/chat/chat.model");
 const reviewModel = require("../models/review.model");
 const RideModel = require("../models/ride.model");
 const { sendPushToUsers } = require("../services/notification.service");
 const { logError } = require("../utils/logger");
+const NotificationEventService = require("../services/notification-event.service");
+const SystemLogService = require("../services/systemLog.service");
 
 const generateBookingCode = () => {
   return `CP${Date.now()}${Math.floor(Math.random() * 900 + 100)}`;
@@ -20,14 +24,12 @@ const getDisplayName = (user) => {
 const createBooking = async (req, res) => {
   try {
     const { ride_id, seats } = req.body;
-
     if (!ride_id || !seats) {
       return res.status(400).json({
         success: false,
         message: "Ride ID and seats are required.",
       });
     }
-
     const requestedSeats = Number(seats);
 
     if (!Number.isFinite(requestedSeats) || requestedSeats <= 0) {
@@ -36,8 +38,7 @@ const createBooking = async (req, res) => {
         message: "Seats must be greater than 0.",
       });
     }
-
-    const ride = await RideModel.findForBooking(req.supabase, ride_id);
+    const ride = await RideModel.findForBooking(supabaseAdmin, ride_id);
 
     if (!ride) {
       return res.status(404).json({
@@ -55,7 +56,7 @@ const createBooking = async (req, res) => {
 
     const existingBooking =
       await BookingModel.findActiveBookingByPassengerAndRide(
-        req.supabase,
+        supabaseAdmin,
         req.user.id,
         ride.id,
       );
@@ -73,9 +74,8 @@ const createBooking = async (req, res) => {
         message: "Not enough seats available.",
       });
     }
-
     const seatUpdated = await RideModel.decreaseAvailableSeats(
-      req.supabase,
+      supabaseAdmin,
       ride.id,
       requestedSeats,
     );
@@ -87,9 +87,13 @@ const createBooking = async (req, res) => {
       });
     }
 
-    const totalPrice = Number(ride.price_per_seat) * requestedSeats;
+    const distanceKm = Number(ride.distance_meters || 0) / 1000;
 
-    const booking = await BookingModel.createBooking(req.supabase, {
+    const totalPrice = Number(
+      (Number(ride.price_per_km || 0) * distanceKm * requestedSeats).toFixed(2),
+    );
+
+    const booking = await BookingModel.createBooking(supabaseAdmin, {
       bookingCode: generateBookingCode(),
       rideId: ride.id,
       passengerId: req.user.id,
@@ -108,27 +112,42 @@ const createBooking = async (req, res) => {
 
     const passengerName = getDisplayName(req.user);
 
-    await sendPushToUsers({
-      userIds: [ride.driver_id],
-      title: "New Ride Booking",
-      body: `${passengerName} has reserved ${requestedSeats} seat${
-        requestedSeats > 1 ? "s" : ""
-      } on your upcoming trip.`,
-      data: {
-        screen: "driver-ride",
-        rideId: ride.id,
-        type: "booking_created",
-      },
+    setImmediate(async () => {
+      try {
+        await NotificationEventService.notifyBookingCreated({
+          passengerId: req.user.id,
+          driverId: ride.driver_id,
+          bookingId: booking.id,
+          rideId: ride.id,
+          passengerName,
+          from: ride.source_address,
+          to: ride.destination_address,
+        });
+      } catch (notifyError) {
+        console.error("[NOTIFICATION ERROR] Booking created:", {
+          message: notifyError?.message,
+          code: notifyError?.code,
+          details: notifyError?.details,
+          stack: notifyError?.stack,
+        });
+      }
     });
 
-    await sendPushToUsers({
-      userIds: [req.user.id],
-      title: "Booking Confirmed",
-      body: "Your seat reservation has been successfully confirmed.",
-      data: {
-        screen: "booking",
+    SystemLogService.logFromReq(req, {
+      module: "bookings",
+      action: "booking_created",
+      entityType: "booking",
+      entityId: booking.id,
+      status: "success",
+      severity: "info",
+      message: "Passenger created a booking.",
+      metadata: {
         bookingId: booking.id,
-        type: "booking_created",
+        rideId: ride.id,
+        passengerId: req.user.id,
+        driverId: ride.driver_id,
+        seats: requestedSeats,
+        totalPrice,
       },
     });
 
@@ -139,7 +158,19 @@ const createBooking = async (req, res) => {
     });
   } catch (error) {
     console.error("[ERROR] Create booking:", error?.message || error);
-
+    await SystemLogService.logFromReq(req, {
+      module: "bookings",
+      action: "booking_create_failed",
+      entityType: "booking",
+      status: "failed",
+      severity: "error",
+      message: error.message,
+      metadata: {
+        rideId: req.body.ride_id,
+        passengerId: req.user?.id,
+        requestBody: req.body,
+      },
+    });
     return res.status(500).json({
       success: false,
       message: "Something went wrong while creating booking.",
@@ -147,12 +178,43 @@ const createBooking = async (req, res) => {
   }
 };
 
+function mapBookingToUi(booking) {
+  const ride = booking.rides || {};
+  const driver = ride.user_details || {};
+  const vehicle = ride.vehicles || {};
+
+  return {
+    id: String(booking.id),
+    code: booking.booking_code,
+
+    from: booking.ride_source || ride.source_address || "",
+    to: booking.ride_destination || ride.destination_address || "",
+
+    pickup: booking.ride_source || ride.source_address || "",
+    drop: booking.ride_destination || ride.destination_address || "",
+
+    date: booking.ride_date,
+    time: booking.ride_time,
+
+    price: Number(booking.total_price || 0),
+    seats: Number(booking.seats || 0),
+
+    driver: driver.full_name || "Driver",
+
+    car: `${vehicle.brand || ""} ${vehicle.model || ""}`.trim() || "Vehicle",
+
+    paymentStatus: booking.payment_status,
+    bookingStatus: booking.status,
+  };
+}
+
 const getMyBookings = async (req, res) => {
   try {
-    const bookings = await BookingModel.findByPassenger(
-      req.supabase,
+    const rawBookings = await BookingModel.findByPassenger(
+      supabaseAdmin,
       req.user.id,
     );
+    const bookings = rawBookings.map(mapBookingToUi);
 
     return res.status(200).json({
       success: true,
@@ -191,10 +253,63 @@ const getDriverBookings = async (req, res) => {
   }
 };
 
+function mapBookingDetailsToUi(booking, hasReviewed = false) {
+  const ride = booking.rides || {};
+  const driver = ride.user_details || {};
+  const vehicle = ride.vehicles || {};
+
+  const from = booking.ride_source || ride.source_address || "";
+
+  const to = booking.ride_destination || ride.destination_address || "";
+
+  return {
+    id: String(booking.id),
+    code: booking.booking_code,
+    rideId: String(booking.ride_id),
+
+    from,
+    to,
+    fullFrom: from,
+    fullTo: to,
+
+    sourceLat: Number(booking.ride_source_lat || ride.source_lat || 0),
+    sourceLng: Number(booking.ride_source_lng || ride.source_lng || 0),
+    destinationLat: Number(
+      booking.ride_destination_lat || ride.destination_lat || 0,
+    ),
+    destinationLng: Number(
+      booking.ride_destination_lng || ride.destination_lng || 0,
+    ),
+
+    date: booking.ride_date || ride.ride_date || "",
+    time: booking.ride_time || ride.departure_time || "",
+
+    seats: Number(booking.seats || 0),
+    pricePerSeat: Number(booking.price_per_seat || 0),
+    totalPrice: Number(booking.total_price || 0),
+
+    status: booking.status,
+    paymentStatus: booking.payment_status,
+    paymentType: booking.payment_type || "cash",
+
+    driverName: driver.full_name || "Driver",
+    driverPhone: driver.phone || null,
+    driverId: ride.driver_id,
+
+    car: `${vehicle.brand || ""} ${vehicle.model || ""}`.trim() || "Vehicle",
+
+    registrationNumber: vehicle.registration_number || "",
+
+    color: vehicle.color || "",
+
+    hasReviewed: Boolean(hasReviewed),
+  };
+}
+
 const getBookingById = async (req, res) => {
   try {
     const booking = await BookingModel.findById(
-      req.supabase,
+      supabaseAdmin,
       req.params.id,
       req.user.id,
     );
@@ -207,18 +322,17 @@ const getBookingById = async (req, res) => {
     }
 
     const hasReviewed = await reviewModel.hasReviewed(
-      req.supabase,
+      supabaseAdmin,
       booking.id,
     );
+
+    const mappedBooking = mapBookingDetailsToUi(booking, hasReviewed);
 
     return res.status(200).json({
       success: true,
       message: "Booking fetched successfully.",
       data: {
-        booking: {
-          ...booking,
-          has_reviewed: hasReviewed,
-        },
+        booking: mappedBooking,
       },
     });
   } catch (error) {
@@ -231,10 +345,169 @@ const getBookingById = async (req, res) => {
   }
 };
 
+const respondToBooking = async (req, res) => {
+  try {
+    const { status } = req.body;
+    if (!["accepted", "rejected"].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Status must be accepted or rejected.",
+      });
+    }
+
+    const booking = await BookingModel.findById(
+      supabaseAdmin,
+      req.params.id,
+      req.user.id,
+    );
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found.",
+      });
+    }
+
+    const isDriver = String(booking.rides?.driver_id) === String(req.user.id);
+    if (!isDriver) {
+      return res.status(403).json({
+        success: false,
+        message: "Only the ride driver can respond to this booking.",
+      });
+    }
+
+    if (booking.status !== "pending") {
+      return res.status(400).json({
+        success: false,
+        message: `Booking is already ${booking.status}.`,
+      });
+    }
+
+    const updated = await BookingModel.updateStatus(
+      supabaseAdmin,
+      booking.id,
+      req.user.id,
+      status,
+    );
+
+    if (!updated) {
+      return res.status(400).json({
+        success: false,
+        message: "Unable to update booking.",
+      });
+    }
+
+    let chatRoom = null;
+
+    if (status === "accepted") {
+      const existingRoom = await ChatModel.getRoomByBookingId(
+        supabaseAdmin,
+        booking.id,
+      );
+
+      chatRoom = existingRoom;
+
+      if (!chatRoom) {
+        chatRoom = await ChatModel.createRoom(supabaseAdmin, {
+          bookingId: booking.id,
+          rideId: booking.ride_id,
+          passengerId: booking.passenger_id,
+          driverId: booking.rides.driver_id,
+        });
+      }
+    }
+
+    setImmediate(async () => {
+      try {
+        if (status === "accepted") {
+          SystemLogService.logFromReq(req, {
+            module: "bookings",
+            action: "booking_accepted",
+            entityType: "booking",
+            entityId: booking.id,
+            status: "success",
+            severity: "info",
+            message: "Driver accepted the booking.",
+            metadata: {
+              bookingId: booking.id,
+              rideId: booking.ride_id,
+              passengerId: booking.passenger_id,
+              driverId: req.user.id,
+              chatRoomId: chatRoom?.id || null,
+            },
+          });
+          await NotificationEventService.notifyBookingAccepted({
+            passengerId: booking.passenger_id,
+            bookingId: booking.id,
+            rideId: booking.ride_id,
+            roomId: chatRoom?.id,
+          });
+        } else {
+          SystemLogService.logFromReq(req, {
+            module: "bookings",
+            action: "booking_rejected",
+            entityType: "booking",
+            entityId: booking.id,
+            status: "success",
+            severity: "warning",
+            message: "Driver rejected the booking.",
+            metadata: {
+              bookingId: booking.id,
+              rideId: booking.ride_id,
+              passengerId: booking.passenger_id,
+              driverId: req.user.id,
+            },
+          });
+          await NotificationEventService.notifyBookingRejected({
+            passengerId: booking.passenger_id,
+            bookingId: booking.id,
+            rideId: booking.ride_id,
+          });
+        }
+      } catch (notifyError) {
+        console.error("[NOTIFICATION ERROR]", {
+          event: `booking_${status}`,
+          bookingId: booking.id,
+          message: notifyError?.message,
+          stack: notifyError?.stack,
+        });
+      }
+    });
+
+    if (status === "rejected") {
+      await RideModel.increaseAvailableSeats(
+        supabaseAdmin,
+        booking.ride_id,
+        booking.seats,
+      );
+    }
+
+    return res.status(200).json({
+      success: true,
+      message:
+        status === "accepted"
+          ? "Booking accepted successfully."
+          : "Booking rejected successfully.",
+      data: {
+        booking_id: booking.id,
+        status,
+        chat_room: chatRoom,
+      },
+    });
+  } catch (error) {
+    console.error("[ERROR] Respond booking:", error?.message || error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong while responding to booking.",
+    });
+  }
+};
+
 const cancelBooking = async (req, res) => {
   try {
     const booking = await BookingModel.findById(
-      req.supabase,
+      supabaseAdmin,
       req.params.id,
       req.user.id,
     );
@@ -261,7 +534,7 @@ const cancelBooking = async (req, res) => {
     }
 
     const updated = await BookingModel.updateStatus(
-      req.supabase,
+      supabaseAdmin,
       booking.id,
       req.user.id,
       "cancelled",
@@ -269,18 +542,52 @@ const cancelBooking = async (req, res) => {
 
     if (updated) {
       await RideModel.increaseAvailableSeats(
-        req.supabase,
+        supabaseAdmin,
         booking.ride_id,
         booking.seats,
       );
+
+      setImmediate(async () => {
+        try {
+          await NotificationEventService.notifyBookingCancelled({
+            passengerId: booking.passenger_id,
+            driverId: booking.rides?.driver_id,
+            bookingId: booking.id,
+            rideId: booking.ride_id,
+          });
+        } catch (notifyError) {
+          console.error("[NOTIFICATION ERROR] Booking cancelled:", {
+            bookingId: booking.id,
+            message: notifyError?.message,
+            stack: notifyError?.stack,
+          });
+        }
+      });
     }
+
+    SystemLogService.logFromReq(req, {
+      module: "bookings",
+      action: "booking_cancelled",
+      entityType: "booking",
+      entityId: booking.id,
+      status: "success",
+      severity: "warning",
+      message: "Passenger cancelled the booking.",
+      metadata: {
+        bookingId: booking.id,
+        rideId: booking.ride_id,
+        passengerId: booking.passenger_id,
+        driverId: booking.rides?.driver_id,
+        releasedSeats: booking.seats,
+      },
+    });
 
     return res.status(200).json({
       success: true,
       message: "Booking cancelled successfully.",
     });
   } catch (error) {
-    logError("CANCEL BOOKING", error)
+    logError("CANCEL BOOKING", error);
     console.error("[ERROR] Cancel booking:", error?.message || error);
 
     return res.status(500).json({
@@ -296,4 +603,5 @@ module.exports = {
   getDriverBookings,
   getBookingById,
   cancelBooking,
+  respondToBooking,
 };

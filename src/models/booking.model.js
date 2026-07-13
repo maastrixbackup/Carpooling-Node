@@ -46,24 +46,51 @@ const BookingModel = {
   async findById(supabase, id, userId) {
     const { data, error } = await supabase
       .from("ride_bookings")
-      .select(`
-        *,
-        rides!inner (
-          id,
-          driver_id,
-          vehicle_id,
-          source_address,
-          destination_address,
-          ride_date,
-          departure_time,
-          vehicles (
-            brand,
-            model,
-            registration_number,
-            color
-          )
+      .select(
+        `
+      id,
+      booking_code,
+      ride_id,
+      passenger_id,
+      seats,
+      ride_source,
+      ride_destination,
+      ride_source_lat,
+      ride_source_lng,
+      ride_destination_lat,
+      ride_destination_lng,
+      ride_date,
+      ride_time,
+      price_per_seat,
+      total_price,
+      status,
+      payment_status,
+      payment_type,
+      rides!inner (
+        id,
+        driver_id,
+        vehicle_id,
+        source_address,
+        destination_address,
+        source_lat,
+        source_lng,
+        destination_lat,
+        destination_lng,
+        ride_date,
+        departure_time,
+        user_details!rides_driver_details_fkey (
+          full_name,
+          phone
+        ),
+        vehicles (
+          brand,
+          model,
+          registration_number,
+          color
         )
-      `)
+      )
+    `,
+      )
       .eq("id", id)
       .maybeSingle();
 
@@ -71,7 +98,7 @@ const BookingModel = {
     if (!data) return null;
 
     const isPassenger = String(data.passenger_id) === String(userId);
-    const isDriver = String(data.rides.driver_id) === String(userId);
+    const isDriver = String(data.rides?.driver_id) === String(userId);
 
     if (!isPassenger && !isDriver) return null;
 
@@ -81,20 +108,38 @@ const BookingModel = {
   async findByPassenger(supabase, passengerId) {
     const { data, error } = await supabase
       .from("ride_bookings")
-      .select(`
-        *,
-        rides (
-          id,
-          driver_id,
-          vehicle_id,
-          vehicles (
-            brand,
-            model,
-            registration_number,
-            color
-          )
+      .select(
+        `
+      id,
+      booking_code,
+      seats,
+      ride_source,
+      ride_destination,
+      ride_date,
+      ride_time,
+      total_price,
+      payment_status,
+      status,
+      created_at,
+      rides (
+        id,
+        driver_id,
+        source_address,
+        destination_address,
+        user_details!rides_driver_details_fkey (
+          full_name,
+          rating,
+          total_rides
+        ),
+        vehicles (
+          brand,
+          model,
+          registration_number,
+          color
         )
-      `)
+      )
+    `,
+      )
       .eq("passenger_id", passengerId)
       .order("created_at", { ascending: false });
 
@@ -106,7 +151,8 @@ const BookingModel = {
   async findByDriver(supabase, { driverId, rideId }) {
     let query = supabase
       .from("ride_bookings")
-      .select(`
+      .select(
+        `
         *,
         rides!inner (
           id,
@@ -116,7 +162,8 @@ const BookingModel = {
           ride_date,
           departure_time
         )
-      `)
+      `,
+      )
       .eq("rides.driver_id", driverId)
       .order("created_at", { ascending: false });
 
@@ -133,9 +180,7 @@ const BookingModel = {
 
   async updateStatus(supabase, id, userId, status) {
     const booking = await this.findById(supabase, id, userId);
-
     if (!booking) return false;
-
     const payload = {
       status,
       updated_at: new Date().toISOString(),
@@ -146,7 +191,7 @@ const BookingModel = {
       payload.confirmed_at = new Date().toISOString();
     }
 
-    if (status === "cancelled") {
+    if (status === "cancelled" || status === "rejected") {
       payload.cancelled_at = new Date().toISOString();
     }
 
