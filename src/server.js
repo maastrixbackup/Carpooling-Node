@@ -24,6 +24,7 @@ const accountRoutes = require("./routes/account.routes");
 const { errorHandler } = require("./middleware/error.middleware");
 const socketAuthMiddleware = require("./sockets/socketAuth.middleware");
 const registerRideTrackingSocket = require("./sockets/rideTracking.socket");
+const { logger } = require("@rudranarayan01/logaccent");
 
 const app = express();
 
@@ -39,7 +40,7 @@ const io = new Server(server, {
 io.use(socketAuthMiddleware);
 app.set("io", io);
 io.on("connection", (socket) => {
-  console.log("Socket connected:", socket.id);
+  logger.success("Socket Connected: ", socket.id)
   socket.on("join_room", (roomId) => {
     socket.join(`room-${roomId}`);
   });
@@ -47,7 +48,7 @@ io.on("connection", (socket) => {
     socket.leave(`room-${roomId}`);
   });
   socket.on("disconnect", () => {
-    console.log("Socket disconnected:", socket.id);
+    logger.error("Socket disconnected:", socket.id)
   });
 });
 registerRideTrackingSocket(io);
@@ -95,5 +96,5 @@ app.use(errorHandler);
 const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚗 Car Pooling API running on port ${PORT}`);
+  logger.success(`🚗 Car Pooling API running on port ${PORT}`)
 });
