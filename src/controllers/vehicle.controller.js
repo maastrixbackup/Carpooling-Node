@@ -1,4 +1,3 @@
-const { uploadVehicleArtifact } = require("../utils/supabaseStorage");
 
 const VehicleModel = require("../models/vehicle.model");
 
@@ -174,6 +173,7 @@ const getMyVehicles = async (req, res) => {
     const vehicles = await VehicleModel.findAllByUser(
       req.supabase,
       req.user.id,
+      { status: "active" }
     );
 
     return res.status(200).json({
