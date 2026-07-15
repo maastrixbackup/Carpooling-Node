@@ -1,3 +1,5 @@
+const { uploadVehicleArtifact } = require("../utils/supabaseStorage");
+
 const VehicleModel = require("../models/vehicle.model");
 
 const normalizeRegistrationNumber = (value = "") => {
@@ -5,6 +7,11 @@ const normalizeRegistrationNumber = (value = "") => {
 };
 
 const createVehicle = async (req, res) => {
+  const traceId = `TX_${Date.now().toString().slice(-6)}`;
+  console.log(
+    `[CONTROLLER][${traceId}] Process initialized for user: ${req.user?.id}`,
+  );
+
   try {
     const {
       vehicle_type,
@@ -28,7 +35,6 @@ const createVehicle = async (req, res) => {
     }
 
     const totalSeats = Number(seats);
-
     if (!Number.isFinite(totalSeats) || totalSeats <= 0) {
       return res.status(400).json({
         success: false,
@@ -36,13 +42,20 @@ const createVehicle = async (req, res) => {
       });
     }
 
-    const normalizedRegistration =
-      normalizeRegistrationNumber(registration_number);
+    const files = req.files || {};
+    const photoFile = files["vehicle_photo"] ? files["vehicle_photo"][0] : null;
+    const rcFile = files["rc_document"] ? files["rc_document"][0] : null;
 
-    const existing = await VehicleModel.findByRegistrationNumber(
-      normalizedRegistration,
-    );
+    if (!photoFile || !rcFile) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Both a vehicle photo snapshot and an RC verification document file are required.",
+      });
+    }
 
+    const normalizedReg = registration_number.trim().toUpperCase();
+    const existing = await VehicleModel.findByRegistrationNumber(normalizedReg);
     if (existing) {
       return res.status(409).json({
         success: false,
@@ -50,31 +63,78 @@ const createVehicle = async (req, res) => {
       });
     }
 
+    const folderPath = `${normalizedReg}/photos`;
+
+    // Inline isolated upload utility to guarantee CommonJS context safely
+    const executeUpload = async (file) => {
+      const extension = file.originalname.split(".").pop();
+      const baseName = file.originalname.substring(
+        0,
+        file.originalname.lastIndexOf("."),
+      );
+      const sanitizedBase = baseName.replace(/[^a-zA-Z0-9]/g, "_");
+      const targetPath = `${folderPath}/${sanitizedBase}.${extension}`;
+
+      console.log(
+        `[STORAGE][${traceId}] Uploading file payload to: "${targetPath}"`,
+      );
+
+      const { data, error } = await req.supabase.storage
+        .from("vehicles")
+        .upload(targetPath, file.buffer, {
+          contentType: file.mimetype,
+          upsert: true,
+        });
+
+      if (error) {
+        throw new Error(`Supabase Storage fail: ${error.message}`);
+      }
+
+      const { data: publicUrlData } = req.supabase.storage
+        .from("vehicles")
+        .getPublicUrl(targetPath);
+
+      return publicUrlData.publicUrl;
+    };
+
+    console.log(
+      `[CONTROLLER][${traceId}] Processing parallel upload pipelines...`,
+    );
+    const [photoUrl, rcUrl] = await Promise.all([
+      executeUpload(photoFile),
+      executeUpload(rcFile),
+    ]);
+
     const vehicle = await VehicleModel.create(req.supabase, {
       userId: req.user.id,
       vehicleType: vehicle_type,
-      brand,
-      model,
+      brand: brand.trim(),
+      model: model.trim(),
       manufactureYear: manufacture_year,
-      registrationNumber: normalizedRegistration,
-      rcNumber: rc_number ? normalizeRegistrationNumber(rc_number) : null,
-      color,
+      registrationNumber: normalizedReg,
+      rcNumber: rc_number ? rc_number.trim().toUpperCase() : normalizedReg,
+      color: color?.trim() || null,
       seats: totalSeats,
       availableSeats: Number(available_seats || totalSeats),
-      fuelType: fuel_type,
+      fuelType: fuel_type || null,
+      vehiclePhoto: photoUrl,
+      rcDocument: rcUrl,
     });
 
     return res.status(201).json({
       success: true,
-      message: "Vehicle added successfully.",
+      message: "Vehicle added and verified successfully.",
       data: { vehicle },
     });
   } catch (error) {
-    console.error("[ERROR] Create vehicle:", error?.message || error);
-
+    console.error(
+      `[CRITICAL SYSTEM ERROR][${traceId}] Component crashed:`,
+      error?.message || error,
+    );
     return res.status(500).json({
       success: false,
-      message: "Something went wrong while adding vehicle.",
+      message:
+        "Something went wrong while processing the backend vehicle data workflow.",
     });
   }
 };
