@@ -64,6 +64,7 @@ const RideModel = {
   },
 
   async findAll(supabase, filters = {}) {
+    const today = new Date().toISOString().split("T")[0];
     let query = supabase
       .from("rides_with_driver")
       .select(
@@ -80,6 +81,7 @@ const RideModel = {
       )
       .eq("status", "scheduled")
       .gt("available_seats", 0)
+      .gte("ride_date", today)
       .order("ride_date", { ascending: true })
       .order("departure_time", { ascending: true });
 

@@ -46,7 +46,7 @@ const VehicleModel = {
       .from("vehicles")
       .select("*")
       .eq("user_id", userId)
-      .neq("status", "blocked")
+      .eq("status", "active") 
       .order("created_at", { ascending: false });
 
     if (error) throw error;
@@ -78,7 +78,7 @@ const VehicleModel = {
 
     return data || null;
   },
-  
+
   async update(supabase, id, userId, payload) {
     const updatePayload = {
       vehicle_type: payload.vehicleType,

@@ -205,16 +205,13 @@ const refreshSession = async (req, res) => {
 const forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
-
     if (!email) {
       return res.status(400).json({
         success: false,
         message: "Email is required.",
       });
     }
-
     await AuthModel.resetPassword(email);
-
     return res.status(200).json({
       success: true,
       message: "Password reset link sent successfully.",
